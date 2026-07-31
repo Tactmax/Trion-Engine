@@ -183,4 +183,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors should understand the exist
 
 ## License
 
-Trion is intended to be licensed under MIT by Tactmax. A `LICENSE` file should be present in the repository before publishing.
+Trion Engine is licensed under the MIT License.
+See [LICENSE](LICENSE) for the full license text.
