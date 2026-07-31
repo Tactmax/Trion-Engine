@@ -1,10 +1,14 @@
 # Trion Engine
 
-Trion Engine is an early TypeScript game-engine runtime built around an Entity-Component-System (ECS) architecture. It uses Three.js as its current rendering backend and runs in browser environments through Vite.
+Trion Engine is an early TypeScript game-engine runtime built around an Entity-Component-System (ECS) architecture. It uses Three.js as its current rendering backend.
 
 ## Status
 
 Trion is under active development. The runtime provides an ECS core, a small Three.js rendering boundary, input handling, prefabs, scene queries and JSON-compatible scene serialization. It is not a complete game or editor.
+
+Current runtime: Web
+Editor: Planned desktop application
+Rendering backend: Three.js / WebGL
 
 ## Features
 
