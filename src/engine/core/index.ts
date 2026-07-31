@@ -1,0 +1,7 @@
+export { Engine } from './Engine.ts'
+export { Entity } from './Entity.ts'
+export type { EntityMetadata } from './Entity.ts'
+export { Prefab, createPrefab } from './Prefab.ts'
+export type { PrefabOverrides } from './Prefab.ts'
+export { Scene } from './Scene.ts'
+export type { JsonValue, SceneData, SerializedEntity } from './SceneSerialization.ts'
