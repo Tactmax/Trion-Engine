@@ -11,8 +11,12 @@ export interface GLTFAssetResult {
   meshes: GLTFMeshAsset[]
 }
 
+export interface CreateStandardMaterialOptions extends Omit<THREE.MeshStandardMaterialParameters, 'map'> {
+  map?: string
+}
+
 /**
- * Owns all registered geometry and material GPU resources.
+ * Owns all registered geometry, material and texture GPU resources.
  *
  * Ownership rules:
  *   - Caller transfers ownership on register(). Do not dispose externally.
@@ -27,6 +31,7 @@ export interface GLTFAssetResult {
 export class AssetManager {
   private readonly geometries = new Map<string, THREE.BufferGeometry>()
   private readonly materials = new Map<string, THREE.Material>()
+  private readonly textures = new Map<string, THREE.Texture>()
   private readonly gltfAssets = new Map<string, GLTFAssetResult>()
 
   /**
@@ -153,15 +158,77 @@ export class AssetManager {
   }
 
   // -------------------------------------------------------------------------
+  // Texture
+  // -------------------------------------------------------------------------
+
+  /**
+   * Load and register an sRGB image texture. Ownership transfers to
+   * AssetManager only after the asynchronous load succeeds.
+   */
+  async loadTexture(id: string, url: string): Promise<THREE.Texture> {
+    try {
+      const texture = await new THREE.TextureLoader().loadAsync(url)
+      texture.colorSpace = THREE.SRGBColorSpace
+      this.registerTexture(id, texture)
+      return texture
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to load texture "${id}" from "${url}": ${detail}`, { cause: error })
+    }
+  }
+
+  /** Register a texture under a string ID and transfer ownership to AssetManager. */
+  registerTexture(id: string, texture: THREE.Texture): void {
+    const existing = this.textures.get(id)
+    if (existing) existing.dispose()
+    this.textures.set(id, texture)
+  }
+
+  getTexture(id: string): THREE.Texture | undefined {
+    return this.textures.get(id)
+  }
+
+  hasTexture(id: string): boolean {
+    return this.textures.has(id)
+  }
+
+  removeTexture(id: string): void {
+    const texture = this.textures.get(id)
+    if (texture) {
+      texture.dispose()
+      this.textures.delete(id)
+    }
+  }
+
+  /**
+   * Create and register a standard material whose optional map references a
+   * texture already owned by this AssetManager.
+   */
+  createStandardMaterial(id: string, options: CreateStandardMaterialOptions = {}): THREE.MeshStandardMaterial {
+    const { map: textureId, ...parameters } = options
+    const map = textureId === undefined ? undefined : this.getTexture(textureId)
+
+    if (textureId !== undefined && !map) {
+      throw new Error(`Cannot create material "${id}": texture "${textureId}" is not registered`)
+    }
+
+    const material = new THREE.MeshStandardMaterial({ ...parameters, map })
+    this.registerMaterial(id, material)
+    return material
+  }
+
+  // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
 
-  /** Dispose all registered geometries and materials and clear both registries. */
+  /** Dispose all directly registered geometries, materials and textures. */
   dispose(): void {
     for (const geometry of this.geometries.values()) geometry.dispose()
     for (const material of this.materials.values()) material.dispose()
+    for (const texture of this.textures.values()) texture.dispose()
     this.geometries.clear()
     this.materials.clear()
+    this.textures.clear()
     this.gltfAssets.clear()
   }
 

@@ -18,6 +18,7 @@ Trion is under active development. The runtime provides an ECS core, a small Thr
 - Linear scene queries by ID, name, tag, component or predicate
 - JSON-compatible scene serialization with stable entity IDs
 - Asynchronous GLTF/GLB static-mesh loading into `AssetManager`
+- Texture loading and texture-backed standard material creation by asset ID
 
 ## Architecture
 
@@ -129,6 +130,15 @@ player.addComponent(createMeshRenderer(playerMesh))
 ```
 
 For mesh index `0`, IDs are `player/mesh/0` and `player/material/0`. Multi-material meshes currently use their first material because `MeshRendererComponent` supports one material ID.
+
+## Textures and standard materials
+
+```ts
+await assets.loadTexture('player/albedo', '/assets/player-albedo.png')
+assets.createStandardMaterial('player/material', { map: 'player/albedo' })
+```
+
+Textures are owned by `AssetManager` and are disposed through `removeTexture()` or `dispose()`. GLTF material textures remain attached to imported Three.js materials but are not yet exposed through Trion's texture-ID registry.
 
 ## Build and run
 

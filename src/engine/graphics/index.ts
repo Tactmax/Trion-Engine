@@ -1,5 +1,5 @@
 export { Renderer } from './Renderer.ts'
 export { AssetManager } from './AssetManager.ts'
-export type { GLTFAssetResult, GLTFMeshAsset } from './AssetManager.ts'
+export type { CreateStandardMaterialOptions, GLTFAssetResult, GLTFMeshAsset } from './AssetManager.ts'
 export { MeshRendererSystem } from './MeshRendererSystem.ts'
 export { CameraSystem } from './CameraSystem.ts'

@@ -10,7 +10,7 @@ export type { MeshRendererComponent, CreateMeshRendererOptions } from './compone
 export { createScript } from './components/Script.ts'
 export type { ScriptComponent, ScriptCallbacks } from './components/Script.ts'
 export { Renderer, AssetManager, MeshRendererSystem, CameraSystem } from './graphics/index.ts'
-export type { GLTFAssetResult, GLTFMeshAsset } from './graphics/index.ts'
+export type { CreateStandardMaterialOptions, GLTFAssetResult, GLTFMeshAsset } from './graphics/index.ts'
 export { ScriptSystem } from './systems/index.ts'
 export { Input } from './input/index.ts'
 export type { Vec2 } from './input/index.ts'

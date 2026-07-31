@@ -76,6 +76,8 @@ Renderer (private THREE.Scene, WebGLRenderer)
 
 `AssetManager` owns registered `THREE.BufferGeometry` and `THREE.Material` objects. Registration transfers ownership. `removeGeometry`, `removeMaterial` and `dispose` are the disposal paths; systems must not dispose borrowed resources.
 
+It also owns directly registered `THREE.Texture` objects. `loadTexture(id, url)` loads an sRGB image asynchronously, and `createStandardMaterial(id, { map: textureId })` resolves a registered texture before creating a normal Three.js standard material. Materials borrow their texture references: removing a material never disposes a texture, while `removeTexture` and `dispose` release directly registered textures.
+
 The Renderer removes meshes but does not dispose their geometry or material. This distinction permits many entities to refer to the same registered asset IDs.
 
 ## Prefabs
@@ -125,6 +127,8 @@ MeshRendererComponent -> MeshRendererSystem -> Renderer
 The GLTF adapter traverses renderable `THREE.Mesh` objects and clones geometry/material resources before transferring ownership to AssetManager. `loadGLTF('player', url)` produces pairs such as `player/mesh/0` and `player/material/0`. Reloading the same GLTF ID removes resources owned by the prior load; collisions with unrelated registered IDs fail instead of overwriting them.
 
 The current MeshRenderer component supports one material ID. A GLTF mesh with multiple materials uses material slot zero for the complete geometry. Static meshes are supported; animation, skinning, hierarchy import and LOD are out of scope.
+
+Textures referenced by imported GLTF materials remain attached to those materials, but are not currently registered as separately addressable Trion texture IDs.
 
 ## Input lifecycle
 
