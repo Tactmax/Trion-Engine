@@ -14,10 +14,7 @@ Engine -> Scene -> Entities -> Components
               Script / graphics systems
                      |
                      v
-          Renderer + AssetManager
-                     |
-                     v
-                 Three.js -> WebGL
+          Renderer + AssetManager + Three.js -> WebGL
 ```
 
 This keeps gameplay data independent from the scene graph and lets systems own their synchronization state without making Three.js objects part of component data.
@@ -32,28 +29,31 @@ Scene.update(deltaTime)
 onPostUpdate(deltaTime)
 ```
 
-The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for `ScriptSystem.update()`, mesh synchronization, camera synchronization, rendering and `Input.endFrame()`.
+The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for `ScriptSystem.update()`, animation updates, mesh synchronization, camera synchronization, rendering and `Input.endFrame()`.
 
 This preserves a single frame loop while allowing a host application to choose system ordering.
 
 ## ECS design and ownership
 
-`Scene` is the sole owner of `Entity` instances in a private ID-keyed map. It creates/destroys entities, owns instantiation, querying and serialization. Entities hold a private map of components keyed by `component.type`.
+`Scene` is the sole owner of `Entity` instances in a private ID-keyed map. It creates and destroys entities, owns instantiation, querying and serialization. Entities hold a private map of components keyed by `component.type`.
 
 Components are plain ECS data with an optional `update(deltaTime)` method. Built-in components are:
 
 - `transform`: position, rotation and scale.
 - `camera`: projection settings.
-- `meshRenderer`: opaque geometry/material IDs plus shadow flags.
+- `meshRenderer`: geometry/material IDs plus shadow flags.
 - `script`: lifecycle callback references and start state.
+- `animation`: asset ID, clip list, active clip, playback state and looping.
 
 Systems query the Scene rather than owning entities. This prevents parallel ownership models and keeps ECS data central.
 
 ## Systems
 
-`ScriptSystem` runs `onStart` once, then `onUpdate` each update for entities with a ScriptComponent. It tracks script instances to invoke `onDestroy` when a tracked script disappears. Call `ScriptSystem.clear()` when the host needs explicit cleanup for all tracked scripts.
+`ScriptSystem` runs `onStart` once, then `onUpdate` each update for entities with a `ScriptComponent`. It tracks script instances to invoke `onDestroy` when a tracked script disappears. Call `ScriptSystem.clear()` when the host needs explicit cleanup for all tracked scripts.
 
-`MeshRendererSystem` resolves `MeshRendererComponent` IDs through `AssetManager`, creates and caches a Three.js mesh per entity, synchronizes Transform and shadow flags, and removes stale meshes from `Renderer`.
+`MeshRendererSystem` resolves `MeshRendererComponent` IDs through `AssetManager`, creates and caches a Three.js mesh per entity, synchronizes `Transform` and shadow flags, and removes stale meshes from `Renderer`. For animated entities, it intentionally skips direct scene placement because `AnimationSystem` owns the runtime target object and transform synchronization.
+
+`AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data.
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
 
@@ -74,11 +74,11 @@ Renderer (private THREE.Scene, WebGLRenderer)
 
 ## Asset ownership and disposal
 
-`AssetManager` owns registered `THREE.BufferGeometry` and `THREE.Material` objects. Registration transfers ownership. `removeGeometry`, `removeMaterial` and `dispose` are the disposal paths; systems must not dispose borrowed resources.
+`AssetManager` owns registered `THREE.BufferGeometry`, `THREE.Material`, `THREE.Texture`, `THREE.AnimationClip` and `THREE.Object3D` animation roots. Registration transfers ownership. `removeGeometry`, `removeMaterial`, `removeTexture`, `removeAnimation`, `removeAnimationRoot` and `dispose` are the disposal paths; systems must not dispose borrowed resources.
 
-It also owns directly registered `THREE.Texture` objects. `loadTexture(id, url)` loads an sRGB image asynchronously, and `createStandardMaterial(id, { map: textureId })` resolves a registered texture before creating a normal Three.js standard material. Materials borrow their texture references: removing a material never disposes a texture, while `removeTexture` and `dispose` release directly registered textures.
+`loadTexture(id, url)` loads an sRGB image asynchronously, and `createStandardMaterial(id, { map: textureId })` resolves a registered texture before creating a standard Three.js material. Materials borrow their texture references: removing a material never disposes a texture, while `removeTexture` and `dispose` release directly registered textures.
 
-The Renderer removes meshes but does not dispose their geometry or material. This distinction permits many entities to refer to the same registered asset IDs.
+`AssetManager.dispose()` also traverses animation roots and disposes meshes and materials nested inside the cloned GLTF scene graph. The Renderer removes meshes but does not dispose their geometry or material. This distinction permits many entities to refer to the same registered asset IDs.
 
 ## Prefabs
 
@@ -118,17 +118,16 @@ graphics/GLTFLoader (Three.js GLTFLoader)
 AssetManager.loadGLTF(id, url)
        |
        v
-geometryId / materialId
+geometryId / materialId / animationId / animationRoot
        |
        v
 MeshRendererComponent -> MeshRendererSystem -> Renderer
+AnimationComponent -> AnimationSystem -> AnimationMixer
 ```
 
-The GLTF adapter traverses renderable `THREE.Mesh` objects and clones geometry/material resources before transferring ownership to AssetManager. `loadGLTF('player', url)` produces pairs such as `player/mesh/0` and `player/material/0`. Reloading the same GLTF ID removes resources owned by the prior load; collisions with unrelated registered IDs fail instead of overwriting them.
+The GLTF adapter traverses renderable `THREE.Mesh` objects, clones geometry and material resources, and transfers ownership to `AssetManager`. `loadGLTF('player', url)` produces pairs such as `player/mesh/0` and `player/material/0`, animation IDs such as `player/animation/0`, and stores the cloned scene root for animation playback. Reloading the same GLTF ID removes resources owned by the prior load; collisions with unrelated registered IDs fail instead of overwriting them.
 
-The current MeshRenderer component supports one material ID. A GLTF mesh with multiple materials uses material slot zero for the complete geometry. Static meshes are supported; animation, skinning, hierarchy import and LOD are out of scope.
-
-Textures referenced by imported GLTF materials remain attached to those materials, but are not currently registered as separately addressable Trion texture IDs.
+The current mesh renderer supports one material ID. A GLTF mesh with multiple materials uses material slot zero for the complete geometry. The current implementation preserves the GLTF hierarchy for animation roots and can create a `SkinnedMesh` when the source geometry includes skinning data.
 
 ## Input lifecycle
 
@@ -150,4 +149,4 @@ The application must call `beginFrame` and `endFrame` in its Engine callback wir
 - Preserve ownership: Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure.
 - Use asset IDs in ECS rendering data rather than Three.js resource references.
 - Avoid global engine singletons, duplicate entity registries and premature query indexes.
-- Integrate additional frame work through Engine callbacks unless the Engine lifecycle is deliberately evolved as a separate architectural change.
+- Integrate additional framework work through Engine callbacks unless the Engine lifecycle is deliberately evolved as a separate architectural change.

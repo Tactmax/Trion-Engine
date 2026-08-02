@@ -1,10 +1,10 @@
 # Trion Engine
 
-Trion Engine is an early TypeScript game-engine runtime built around an Entity-Component-System (ECS) architecture. It uses Three.js as its current rendering backend.
+Trion Engine is a TypeScript ECS-based browser engine built on Three.js. It provides a small runtime for composing entities, components and systems in the browser, with a clear separation between gameplay data and the Three.js rendering boundary.
 
 ## Status
 
-Trion is under active development. The runtime provides an ECS core, a small Three.js rendering boundary, input handling, prefabs, scene queries and JSON-compatible scene serialization. It is not a complete game or editor.
+Trion is under active development. The current runtime provides an ECS core, a Three.js-backed rendering boundary, input handling, prefabs, scene queries, JSON-compatible scene serialization and GLTF/GLB loading with animation support. It is not a complete game engine or editor.
 
 Current runtime: Web
 
@@ -16,15 +16,16 @@ Rendering backend: Three.js / WebGL
 
 - Engine lifecycle driven by a single `requestAnimationFrame` loop
 - Scene, Entity and Component ECS runtime
-- Transform, Camera, MeshRenderer and Script components
+- Transform, Camera, MeshRenderer, Script and Animation components
 - Perspective and orthographic camera synchronization
-- Three.js-backed mesh rendering and resource ownership
+- Three.js-backed mesh rendering and explicit resource ownership
 - Keyboard, mouse, scroll and single-frame input states
 - Immutable prefabs with component overrides
 - Linear scene queries by ID, name, tag, component or predicate
 - JSON-compatible scene serialization with stable entity IDs
-- Asynchronous GLTF/GLB static-mesh loading into `AssetManager`
+- Asynchronous GLTF/GLB loading into `AssetManager` with geometry, material, animation clip and animation-root registration
 - Texture loading and texture-backed standard material creation by asset ID
+- Animation support via `AnimationComponent`, `AnimationSystem` and `AnimationMixer`
 
 ## Architecture
 
@@ -38,14 +39,14 @@ Engine -> Scene -> Entity / Component data
                    Systems
                       |
                       v
-       Renderer / AssetManager -> Three.js -> WebGL
+       Renderer / AssetManager / Three.js -> WebGL
 ```
 
-`Scene` owns entities. Systems read ECS data and synchronize Three.js objects behind the graphics boundary. `AssetManager` owns registered geometries and materials; `MeshRendererComponent` refers to them by string ID.
+`Scene` owns entities. Systems read ECS data and synchronize Three.js objects behind the graphics boundary. `AssetManager` owns registered geometries, materials, textures, animation clips and animation roots; `MeshRendererComponent` and `AnimationComponent` refer to them by string ID.
 
 ## Runtime lifecycle
 
-`Engine` runs the frame loop. It calls `onPreUpdate`, updates the Scene, then calls `onPostUpdate`. Input and systems are wired by the application, as shown in `src/main.ts`:
+`Engine` runs the frame loop. It calls `onPreUpdate`, updates the `Scene`, then calls `onPostUpdate`. Input and systems are wired by the application in `src/main.ts`:
 
 ```text
 requestAnimationFrame
@@ -55,7 +56,7 @@ requestAnimationFrame
     -> onPostUpdate(deltaTime)     // systems + render + Input.endFrame()
 ```
 
-The demo's post-update callback runs `ScriptSystem`, `MeshRendererSystem`, `CameraSystem`, then `Renderer.render()`.
+The demo post-update callback runs `ScriptSystem`, `AnimationSystem`, `MeshRendererSystem`, camera synchronization and `Renderer.render()`.
 
 ## Basic usage
 
@@ -70,7 +71,7 @@ import {
 const engine = new Engine()
 
 const camera = engine.scene.createEntity({ name: 'Main Camera' })
-camera.addComponent(createTransform({ z: 5 }))
+camera.addComponent(createTransform({ x: 0, y: 1.2, z: 4 }))
 camera.addComponent(createCamera())
 
 const cube = engine.scene.createEntity({ name: 'Cube', tag: 'Renderable' })
@@ -124,18 +125,32 @@ Serialization stores entity IDs, optional names/tags and JSON-compatible compone
 
 ## GLTF / GLB loading
 
-`AssetManager` loads static renderable meshes asynchronously. The returned IDs can be passed directly to `createMeshRenderer`.
+`AssetManager.loadGLTF(id, url)` loads meshes, animation clips and an animation root from a GLTF or GLB asset. The returned IDs can be passed directly to `createMeshRenderer` and `createAnimation`.
 
 ```ts
-const imported = await assets.loadGLTF('player', '/assets/player.glb')
-const playerMesh = imported.meshes[0]
+const imported = await assets.loadGLTF('test-animation', '/assets/test-animation.glb')
+const selectedClip = imported.animations[0]
 
-const player = engine.scene.createEntity({ name: 'Player' })
-player.addComponent(createTransform())
-player.addComponent(createMeshRenderer(playerMesh))
+const animatedEntity = engine.scene.createEntity({ name: 'Animated Mesh' })
+animatedEntity.addComponent(createTransform({ x: 0, y: 0, z: -3 }))
+animatedEntity.addComponent(createMeshRenderer({
+  geometryId: imported.meshes[0].geometryId,
+  materialId: imported.meshes[0].materialId,
+}))
+animatedEntity.addComponent(createAnimation({
+  assetId: imported.id,
+  clips: imported.animations,
+  activeClip: selectedClip,
+  playing: Boolean(selectedClip),
+  loop: true,
+}))
 ```
 
-For mesh index `0`, IDs are `player/mesh/0` and `player/material/0`. Multi-material meshes currently use their first material because `MeshRendererComponent` supports one material ID.
+For mesh index `0`, geometry and material IDs are `test-animation/mesh/0` and `test-animation/material/0`. Animation clip IDs are emitted as `test-animation/animation/<index>`. Multi-material meshes currently use their first material because `MeshRendererComponent` supports one material ID.
+
+## Animation support
+
+Animated entities are created with a `Transform` component plus a `MeshRenderer` and an `Animation` component. `AnimationSystem` clones the GLTF scene root into a runtime target object, creates an `AnimationMixer`, and drives the selected clip each frame. The system preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry contains skinning data.
 
 ## Textures and standard materials
 
@@ -144,7 +159,7 @@ await assets.loadTexture('player/albedo', '/assets/player-albedo.png')
 assets.createStandardMaterial('player/material', { map: 'player/albedo' })
 ```
 
-Textures are owned by `AssetManager` and are disposed through `removeTexture()` or `dispose()`. GLTF material textures remain attached to imported Three.js materials but are not yet exposed through Trion's texture-ID registry.
+Textures are owned by `AssetManager` and are disposed through `removeTexture()` or `dispose()`. Standard materials are created from registered textures and then registered as material IDs for `MeshRendererComponent`.
 
 ## Build and run
 
@@ -177,21 +192,21 @@ src/
 ## Design philosophy
 
 - Keep ECS data separate from rendering implementation details.
-- Make ownership explicit: Scene owns entities; AssetManager owns registered GPU resources.
+- Make ownership explicit: Scene owns entities; AssetManager owns registered GPU resources; Renderer owns the scene graph and WebGL context.
 - Prefer small APIs and direct iteration over premature abstractions.
 - Keep Three.js-specific code inside the graphics boundary.
 
 ## Current limitations
 
-- No physics, animation playback, audio, UI, networking, editor or WebGPU backend.
-- GLTF loading supports static meshes only; scene hierarchy, skins, animation and LOD are not imported.
+- No physics, audio, UI, networking, editor or WebGPU backend.
+- Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.
 - Querying currently uses linear scans rather than indexes.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for completed work and possible future directions.
+See [ROADMAP.md](ROADMAP.md) for implemented work and planned future directions.
 
 ## Contributing
 
