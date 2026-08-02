@@ -42,6 +42,11 @@ export class Renderer {
     return el.clientWidth / el.clientHeight
   }
 
+  /** Return the underlying Three.js scene for debugging and runtime inspection. */
+  getScene(): THREE.Scene {
+    return this.scene
+  }
+
   /** Add an object directly to the internal Three.js scene. */
   add(object: THREE.Object3D): void {
     this.scene.add(object)
@@ -69,13 +74,14 @@ export class Renderer {
 
   /**
    * Remove the mesh associated with an entity ID from the scene.
-   * Called by MeshRendererSystem on entity destruction or component removal.
+   * Uses removeFromParent() so it works even when the mesh has been
+   * reparented under an animation root by AnimationSystem.
    * Does not dispose geometry or material — those are owned by AssetManager.
    */
   removeMesh(entityId: number): void {
     const mesh = this.meshes.get(entityId)
     if (mesh) {
-      this.scene.remove(mesh)
+      mesh.removeFromParent()
       this.meshes.delete(entityId)
     }
   }

@@ -22,6 +22,7 @@ export class CameraSystem {
   private readonly renderer: Renderer
 
   private threeCamera: THREE.PerspectiveCamera | THREE.OrthographicCamera | null = null
+  private cameraAddedToScene = false
   private activeProjectionMode: 'perspective' | 'orthographic' | null = null
   
   // Track previous state to avoid unnecessary projection matrix updates
@@ -76,6 +77,11 @@ export class CameraSystem {
       this.threeCamera = new THREE.PerspectiveCamera()
     } else {
       this.threeCamera = new THREE.OrthographicCamera()
+    }
+
+    if (this.threeCamera && !this.cameraAddedToScene) {
+      this.renderer.add(this.threeCamera)
+      this.cameraAddedToScene = true
     }
 
     this.activeProjectionMode = mode

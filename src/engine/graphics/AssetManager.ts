@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { loadGLTFMeshes } from './GLTFLoader.ts'
+import { loadGLTFAsset } from './GLTFLoader.ts'
 
 export interface GLTFMeshAsset {
   geometryId: string
@@ -9,6 +9,7 @@ export interface GLTFMeshAsset {
 export interface GLTFAssetResult {
   id: string
   meshes: GLTFMeshAsset[]
+  animations: string[]
 }
 
 export interface CreateStandardMaterialOptions extends Omit<THREE.MeshStandardMaterialParameters, 'map'> {
@@ -32,6 +33,8 @@ export class AssetManager {
   private readonly geometries = new Map<string, THREE.BufferGeometry>()
   private readonly materials = new Map<string, THREE.Material>()
   private readonly textures = new Map<string, THREE.Texture>()
+  private readonly animations = new Map<string, THREE.AnimationClip>()
+  private readonly animationRoots = new Map<string, THREE.Object3D>()
   private readonly gltfAssets = new Map<string, GLTFAssetResult>()
 
   /**
@@ -43,17 +46,18 @@ export class AssetManager {
    */
   async loadGLTF(id: string, url: string): Promise<GLTFAssetResult> {
     try {
-      const loadedMeshes = await loadGLTFMeshes(url)
-      if (loadedMeshes.length === 0) {
+      const loaded = await loadGLTFAsset(url)
+      if (loaded.meshes.length === 0) {
         throw new Error('The file contains no renderable meshes')
       }
 
       const result: GLTFAssetResult = {
         id,
-        meshes: loadedMeshes.map((_, index) => ({
+        meshes: loaded.meshes.map((_, index) => ({
           geometryId: `${id}/mesh/${index}`,
           materialId: `${id}/material/${index}`,
         })),
+        animations: loaded.animations.map((_, index) => `${id}/animation/${index}`),
       }
 
       this.assertGLTFIdsAvailable(id, result)
@@ -61,17 +65,28 @@ export class AssetManager {
 
       const registered: GLTFMeshAsset[] = []
       try {
-        for (const [index, mesh] of loadedMeshes.entries()) {
+        for (const [index, mesh] of loaded.meshes.entries()) {
           const asset = result.meshes[index]
           registered.push(asset)
           this.registerGeometry(asset.geometryId, mesh.geometry)
           this.registerMaterial(asset.materialId, mesh.material)
         }
+
+        for (const [index, clip] of loaded.animations.entries()) {
+          const animationId = result.animations[index]
+          this.registerAnimation(animationId, clip)
+        }
+
+        this.registerAnimationRoot(id, loaded.sceneRoot)
       } catch (error) {
         for (const asset of registered) {
           this.removeGeometry(asset.geometryId)
           this.removeMaterial(asset.materialId)
         }
+        for (const animationId of result.animations) {
+          this.removeAnimation(animationId)
+        }
+        this.removeAnimationRoot(id)
         throw error
       }
 
@@ -142,6 +157,42 @@ export class AssetManager {
 
   hasMaterial(id: string): boolean {
     return this.materials.has(id)
+  }
+
+  // -------------------------------------------------------------------------
+  // Animation clip
+  // -------------------------------------------------------------------------
+
+  registerAnimation(id: string, clip: THREE.AnimationClip): void {
+    this.animations.set(id, clip)
+  }
+
+  getAnimation(id: string): THREE.AnimationClip | undefined {
+    return this.animations.get(id)
+  }
+
+  hasAnimation(id: string): boolean {
+    return this.animations.has(id)
+  }
+
+  removeAnimation(id: string): void {
+    this.animations.delete(id)
+  }
+
+  registerAnimationRoot(id: string, root: THREE.Object3D): void {
+    this.animationRoots.set(id, root)
+  }
+
+  getAnimationRoot(id: string): THREE.Object3D | undefined {
+    return this.animationRoots.get(id)
+  }
+
+  hasAnimationRoot(id: string): boolean {
+    return this.animationRoots.has(id)
+  }
+
+  removeAnimationRoot(id: string): void {
+    this.animationRoots.delete(id)
   }
 
   /**
@@ -221,14 +272,32 @@ export class AssetManager {
   // Lifecycle
   // -------------------------------------------------------------------------
 
-  /** Dispose all directly registered geometries, materials and textures. */
+  /** Dispose all directly registered geometries, materials, textures and animation scene graphs. */
   dispose(): void {
     for (const geometry of this.geometries.values()) geometry.dispose()
     for (const material of this.materials.values()) material.dispose()
     for (const texture of this.textures.values()) texture.dispose()
+
+    // Dispose nested resources inside animation roots (clone'ed from GLTF
+    // scene — these own separate instances from the main geometry/material maps)
+    for (const root of this.animationRoots.values()) {
+      root.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose()
+          if (Array.isArray(child.material)) {
+            for (const mat of child.material) mat.dispose()
+          } else {
+            child.material?.dispose()
+          }
+        }
+      })
+    }
+
     this.geometries.clear()
     this.materials.clear()
     this.textures.clear()
+    this.animations.clear()
+    this.animationRoots.clear()
     this.gltfAssets.clear()
   }
 
@@ -255,6 +324,10 @@ export class AssetManager {
       this.removeGeometry(mesh.geometryId)
       this.removeMaterial(mesh.materialId)
     }
+    for (const animationId of existing.animations) {
+      this.removeAnimation(animationId)
+    }
+    this.removeAnimationRoot(id)
     this.gltfAssets.delete(id)
   }
 }

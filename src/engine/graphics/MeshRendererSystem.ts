@@ -49,6 +49,24 @@ export class MeshRendererSystem {
     this.removeStaleMeshes()
   }
 
+  ensureMesh(entityId: number): THREE.Mesh | undefined {
+    const entity = this.scene.getEntity(entityId)
+    if (!entity) return undefined
+
+    const mr = entity.getComponent<MeshRendererComponent>('meshRenderer')
+    if (!mr) return undefined
+
+    const geo = this.assets.getGeometry(mr.geometryId)
+    const mat = this.assets.getMaterial(mr.materialId)
+    if (!geo || !mat) return undefined
+
+    return this.resolveOrRebuildMesh(entityId, mr, geo, mat)
+  }
+
+  getMesh(entityId: number): THREE.Mesh | undefined {
+    return this.cache.get(entityId)?.mesh
+  }
+
   // ---------------------------------------------------------------------------
   // Private — update pass
   // ---------------------------------------------------------------------------
@@ -57,6 +75,10 @@ export class MeshRendererSystem {
     const entities = this.scene.getEntitiesWithComponent('meshRenderer')
 
     for (const entity of entities) {
+      // Skip entities with an animation component — AnimationSystem owns their
+      // scene-graph placement and transform sync.
+      if (entity.hasComponent('animation')) continue
+
       const mr = entity.getComponent<MeshRendererComponent>('meshRenderer')!
       const geo = this.assets.getGeometry(mr.geometryId)
       const mat = this.assets.getMaterial(mr.materialId)
@@ -90,12 +112,15 @@ export class MeshRendererSystem {
       cached.geometryId === mr.geometryId &&
       cached.materialId === mr.materialId
 
-    if (idsUnchanged) return cached!.mesh
+    if (idsUnchanged && cached!.mesh.parent) return cached!.mesh
 
-    // First creation or runtime asset-ID change — (re)build the mesh.
-    // removeMesh is safe to call even if the entity has no mesh yet.
+    // First creation, asset-ID change, or mesh was orphaned by animation
+    // cleanup — (re)build the mesh and add it to the scene.
+    // Use SkinnedMesh if the geometry has skinning data so bone animations
+    // can deform the mesh; otherwise use a regular Mesh.
     this.renderer.removeMesh(entityId)
-    const mesh = new THREE.Mesh(geo, mat)
+    const isSkinned = geo.hasAttribute('skinIndex')
+    const mesh = isSkinned ? new THREE.SkinnedMesh(geo, mat) : new THREE.Mesh(geo, mat)
     this.renderer.addMesh(entityId, mesh)
     this.cache.set(entityId, { mesh, geometryId: mr.geometryId, materialId: mr.materialId })
     return mesh
