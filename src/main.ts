@@ -32,8 +32,6 @@ renderer.add(ambientLight)
 renderer.add(directionalLight)
 
 const assets = new AssetManager()
-assets.registerGeometry('cube', new THREE.BoxGeometry())
-assets.registerMaterial('normal', new THREE.MeshNormalMaterial())
 
 const input = new Input()
 
@@ -42,40 +40,42 @@ const engine = new Engine()
 
 // Demo Entity 1: Camera
 const cameraEntity = engine.scene.createEntity()
-cameraEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 4 }))
+cameraEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 2.5 }))
 cameraEntity.addComponent(createCamera())
 
-// Demo Entity 2: Player Cube with WASD, Jump, Click, Mouse Look Script
-const playerEntity = engine.scene.createEntity()
-playerEntity.addComponent(createTransform())
-playerEntity.addComponent(createMeshRenderer({ geometryId: 'cube', materialId: 'normal' }))
-playerEntity.addComponent(
-  createScript({
-    onUpdate(dt, entity) {
-      const transform = entity.getComponent<TransformComponent>('transform')
-      if (!transform) return
-
-      const moveSpeed = 4
-
-      // 1. WASD Movement
-      if (input.getKey('KeyW')) transform.position.z -= moveSpeed * dt
-      if (input.getKey('KeyS')) transform.position.z += moveSpeed * dt
-      if (input.getKey('KeyA')) transform.position.x -= moveSpeed * dt
-      if (input.getKey('KeyD')) transform.position.x += moveSpeed * dt
-
-      // 2. Space to Jump (single-frame trigger)
-      if (input.getKeyDown('Space')) {
-        transform.position.y += 0.5
-      }
-
-      // 3. Mouse Look using delta
-      const mouseDelta = input.getMouseDelta()
-      const sensitivity = 0.003
-      transform.rotation.y -= mouseDelta.x * sensitivity
-      transform.rotation.x -= mouseDelta.y * sensitivity
-    },
-  }),
-)
+// Demo Entity 2: Rubik's Cube (loaded from GLB)
+void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) => {
+  const rubiksEntity = engine.scene.createEntity()
+  rubiksEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 0 }))
+  rubiksEntity.addComponent(createMeshRenderer({
+    geometryId: result.meshes[0].geometryId,
+    materialId: result.meshes[0].materialId,
+  }))
+  if (result.animations.length > 0) {
+    rubiksEntity.addComponent(createAnimation({
+      assetId: result.id,
+      clips: result.animations,
+      activeClip: result.animations[0],
+      playing: true,
+      loop: true,
+    }))
+  }
+  rubiksEntity.addComponent(
+    createScript({
+      onUpdate(dt, entity) {
+        const t = entity.getComponent<TransformComponent>('transform')
+        if (!t) return
+        if (input.getKey('KeyW')) t.position.z -= 4 * dt
+        if (input.getKey('KeyS')) t.position.z += 4 * dt
+        if (input.getKey('KeyA')) t.position.x -= 4 * dt
+        if (input.getKey('KeyD')) t.position.x += 4 * dt
+        const mouseDelta = input.getMouseDelta()
+        t.rotation.y -= mouseDelta.x * 0.003
+        t.rotation.x -= mouseDelta.y * 0.003
+      },
+    }),
+  )
+})
 
 // --- Systems ---
 const scriptSystem = new ScriptSystem(engine.scene)
@@ -119,30 +119,6 @@ engine.onPostUpdate = (deltaTime: number) => {
 
   input.endFrame()
 }
-
-void assets.loadGLTF('test-animation', '/assets/test-animation.glb').then((result) => {
-  const selectedClip = result.animations[0]
-
-  const animatedEntity = engine.scene.createEntity()
-  animatedEntity.addComponent(createTransform({ x: 2.2, y: 0.2, z: -5 }))
-  animatedEntity.addComponent(createMeshRenderer({
-    geometryId: result.meshes[0].geometryId,
-    materialId: result.meshes[0].materialId,
-  }))
-  const animatedTransform = animatedEntity.getComponent<TransformComponent>('transform')
-  if (animatedTransform) {
-    animatedTransform.scale.x = 2.5
-    animatedTransform.scale.y = 2.5
-    animatedTransform.scale.z = 2.5
-  }
-  animatedEntity.addComponent(createAnimation({
-    assetId: result.id,
-    clips: result.animations,
-    activeClip: selectedClip,
-    playing: Boolean(selectedClip),
-    loop: true,
-  }))
-})
 
 ;(window as Window & { __trionDebug?: unknown }).__trionDebug = {
   engine,
