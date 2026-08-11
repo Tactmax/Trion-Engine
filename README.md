@@ -26,6 +26,7 @@ Rendering backend: Three.js / WebGL
 - Asynchronous GLTF/GLB loading into `AssetManager` with geometry, material, animation clip and animation-root registration
 - Texture loading and texture-backed standard material creation by asset ID
 - Animation support via `AnimationComponent`, `AnimationSystem` and `AnimationMixer`
+- Backend-agnostic physics architecture with an initial Rapier implementation
 
 ## Architecture
 
@@ -36,10 +37,10 @@ Game code
 Engine -> Scene -> Entity / Component data
                       |
                       v
-                   Systems
+                   Systems (e.g. PhysicsSystem, ScriptSystem)
                       |
                       v
-       Renderer / AssetManager / Three.js -> WebGL
+       Renderer / AssetManager / Three.js / PhysicsBackend
 ```
 
 `Scene` owns entities. Systems read ECS data and synchronize Three.js objects behind the graphics boundary. `AssetManager` owns registered geometries, materials, textures, animation clips and animation roots; `MeshRendererComponent` and `AnimationComponent` refer to them by string ID.
@@ -161,6 +162,28 @@ assets.createStandardMaterial('player/material', { map: 'player/albedo' })
 
 Textures are owned by `AssetManager` and are disposed through `removeTexture()` or `dispose()`. Standard materials are created from registered textures and then registered as material IDs for `MeshRendererComponent`.
 
+## Physics
+
+Trion Engine includes a backend-agnostic physics architecture.
+
+The engine provides three pure ECS physics components:
+- `RigidBodyComponent` (`createRigidBody`): Marks an entity as a physical body (`dynamic` or `fixed`).
+- `BoxColliderComponent` (`createBoxCollider`): Attaches a box collision shape.
+- `SphereColliderComponent` (`createSphereCollider`): Attaches a spherical collision shape.
+
+The `PhysicsSystem` bridges these pure data components to an underlying `PhysicsBackend` implementation.
+
+```ts
+import { PhysicsSystem, RapierPhysicsBackend } from './engine/index.ts'
+
+const physicsSystem = new PhysicsSystem(engine.scene)
+const backend = new RapierPhysicsBackend()
+await backend.initialize({ x: 0, y: -9.81, z: 0 })
+physicsSystem.setBackend(backend)
+```
+
+The engine-facing API contains absolutely zero backend-specific types (e.g., no Rapier objects). All Rapier interactions are isolated entirely within `RapierPhysicsBackend.ts`. Adding another backend (like Ammo.js or Jolt) would simply involve creating a new class that implements the `PhysicsBackend` interface, with no changes needed in `PhysicsSystem` or the ECS components.
+
 ## Build and run
 
 ```bash
@@ -185,7 +208,8 @@ src/
     core/        Engine, Scene, Entity, Prefab, serialization
     graphics/    Renderer, AssetManager, camera/mesh systems, GLTF loading
     input/       DOM input service
-    systems/     Runtime systems
+    physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
+    systems/     Runtime systems (Script, Animation)
   main.ts        Browser demo and engine wiring
 ```
 
@@ -198,7 +222,7 @@ src/
 
 ## Current limitations
 
-- No physics, audio, UI, networking, editor or WebGPU backend.
+- No audio, UI, networking, editor or WebGPU backend.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.

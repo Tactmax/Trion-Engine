@@ -11,10 +11,10 @@ Game code
 Engine -> Scene -> Entities -> Components
                      |
                      v
-              Script / graphics systems
+             Script / physics / graphics systems
                      |
                      v
-          Renderer + AssetManager + Three.js -> WebGL
+          Renderer + AssetManager + Three.js + PhysicsBackend
 ```
 
 This keeps gameplay data independent from the scene graph and lets systems own their synchronization state without making Three.js objects part of component data.
@@ -44,6 +44,8 @@ Components are plain ECS data with an optional `update(deltaTime)` method. Built
 - `meshRenderer`: geometry/material IDs plus shadow flags.
 - `script`: lifecycle callback references and start state.
 - `animation`: asset ID, clip list, active clip, playback state and looping.
+- `rigidBody`: physics body type (`dynamic` or `fixed`).
+- `boxCollider` / `sphereCollider`: collision shape descriptions.
 
 Systems query the Scene rather than owning entities. This prevents parallel ownership models and keeps ECS data central.
 
@@ -56,6 +58,34 @@ Systems query the Scene rather than owning entities. This prevents parallel owne
 `AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data.
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
+
+## Physics architecture
+
+The physics subsystem is built entirely around an abstract, backend-agnostic interface (`PhysicsBackend`). The `PhysicsSystem` operates against this interface and has zero knowledge of the actual physics engine being used.
+
+The initial implementation uses Rapier (`RapierPhysicsBackend`).
+
+```text
+RigidBodyComponent / BoxColliderComponent
+                   |
+                   v
+             PhysicsSystem
+                   |
+                   v
+             PhysicsBackend (Interface)
+                   |
+                   v
+           RapierPhysicsBackend
+                   |
+                   v
+           @dimforge/rapier3d-compat
+```
+
+- **Data Components:** `RigidBodyComponent`, `BoxColliderComponent`, and `SphereColliderComponent` are pure ECS data types containing no backend-specific handles.
+- **PhysicsSystem:** Driven via the engine's `onPostUpdate`, it manages a fixed-timestep accumulator, synchronizes ECS transforms to kinematic/fixed bodies, steps the physics backend, and reads back dynamic transforms to the ECS `TransformComponent`.
+- **RapierPhysicsBackend:** The *only* file in the engine allowed to import from `@dimforge/rapier3d-compat`. It translates between the engine's `PhysVec3` and Rapier's `Vector3`, handles Euler to Quaternion conversions, and manages the internal mappings between engine handles and Rapier objects.
+
+To replace Rapier with Bullet or Jolt, a new backend class implementing `PhysicsBackend` can be created and passed to `physicsSystem.setBackend()`. No engine components or systems need to change.
 
 ## Rendering boundary
 
