@@ -98,9 +98,6 @@ export class AssetManager {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Geometry
-  // -------------------------------------------------------------------------
 
   /**
    * Register a geometry under a string ID.
@@ -135,9 +132,6 @@ export class AssetManager {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Material
-  // -------------------------------------------------------------------------
 
   /**
    * Register a material under a string ID.
@@ -159,9 +153,6 @@ export class AssetManager {
     return this.materials.has(id)
   }
 
-  // -------------------------------------------------------------------------
-  // Animation clip
-  // -------------------------------------------------------------------------
 
   registerAnimation(id: string, clip: THREE.AnimationClip): void {
     this.animations.set(id, clip)
@@ -208,9 +199,6 @@ export class AssetManager {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Texture
-  // -------------------------------------------------------------------------
 
   /**
    * Load and register an sRGB image texture. Ownership transfers to
@@ -268,9 +256,6 @@ export class AssetManager {
     return material
   }
 
-  // -------------------------------------------------------------------------
-  // Lifecycle
-  // -------------------------------------------------------------------------
 
   /** Dispose all directly registered geometries, materials, textures and animation scene graphs. */
   dispose(): void {

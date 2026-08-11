@@ -67,9 +67,6 @@ export class MeshRendererSystem {
     return this.cache.get(entityId)?.mesh
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — update pass
-  // ---------------------------------------------------------------------------
 
   private updateMeshes(): void {
     const entities = this.scene.getEntitiesWithComponent('meshRenderer')
@@ -141,9 +138,6 @@ export class MeshRendererSystem {
     mesh.scale.set(xform.scale.x, xform.scale.y, xform.scale.z)
   }
 
-  // ---------------------------------------------------------------------------
-  // Private — stale mesh removal pass
-  // ---------------------------------------------------------------------------
 
   /**
    * Detect entities whose mesh should no longer be in the scene:

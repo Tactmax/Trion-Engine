@@ -40,9 +40,6 @@ export class Input {
     this.bindEvents()
   }
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle / Frame Latching
-  // ---------------------------------------------------------------------------
 
   /**
    * Latches accumulated asynchronous DOM events into frame-stable buffers.
@@ -70,9 +67,6 @@ export class Input {
     this.frameScrollDelta = { x: 0, y: 0 }
   }
 
-  // ---------------------------------------------------------------------------
-  // Keyboard Public API
-  // ---------------------------------------------------------------------------
 
   /** Returns true continuously while the specified key code is held down. */
   getKey(code: string): boolean {
@@ -89,9 +83,6 @@ export class Input {
     return this.keysReleased.has(code)
   }
 
-  // ---------------------------------------------------------------------------
-  // Mouse Public API
-  // ---------------------------------------------------------------------------
 
   /** Returns true continuously while the mouse button is held down (0=Left, 1=Middle, 2=Right). */
   getMouseButton(button: number): boolean {
@@ -123,9 +114,6 @@ export class Input {
     return { ...this.frameScrollDelta }
   }
 
-  // ---------------------------------------------------------------------------
-  // DOM Event Handlers
-  // ---------------------------------------------------------------------------
 
   private handleKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return
@@ -172,9 +160,6 @@ export class Input {
     this.buttonsReleased.clear()
   }
 
-  // ---------------------------------------------------------------------------
-  // Event Binding & Cleanup
-  // ---------------------------------------------------------------------------
 
   private bindEvents(): void {
     this.target.addEventListener('keydown', this.handleKeyDown as EventListener)

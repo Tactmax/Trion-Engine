@@ -57,9 +57,6 @@ export class Renderer {
     this.scene.remove(object)
   }
 
-  // -------------------------------------------------------------------------
-  // Entity-managed mesh lifecycle
-  // -------------------------------------------------------------------------
 
   /**
    * Add a mesh to the scene and associate it with an entity ID.

@@ -8,6 +8,7 @@ import {
   ScriptSystem,
   AnimationSystem,
   Input,
+  PhysicsSystem,
   createTransform,
   createMeshRenderer,
   createCamera,
@@ -78,10 +79,12 @@ void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) 
 })
 
 // --- Systems ---
+const physicsSystem = new PhysicsSystem(engine.scene)
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
+
 
 // --- Engine Frame Lifecycle Wiring ---
 //
@@ -108,6 +111,7 @@ engine.onPreUpdate = () => {
 }
 
 engine.onPostUpdate = (deltaTime: number) => {
+  physicsSystem.update(deltaTime)
   scriptSystem.update(deltaTime)
   animationSystem.update(deltaTime)
   meshRendererSystem.sync()
