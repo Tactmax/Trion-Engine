@@ -14,6 +14,10 @@ import {
   createCamera,
   createAnimation,
   createScript,
+  createUI,
+  createUIText,
+  createUIButton,
+  UISystem,
 } from './engine/index.ts'
 import * as THREE from 'three'
 import type { TransformComponent } from './engine/components/Transform.ts'
@@ -78,12 +82,46 @@ void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) 
   )
 })
 
+// Demo Entity 3: Minimal UI Button
+const uiEntity = engine.scene.createEntity()
+uiEntity.addComponent(createUI({
+  position: { x: 20, y: 20 },
+  size: { x: 200, y: 50 },
+  backgroundColor: '#4a4a8a',
+}))
+uiEntity.addComponent(createUIText({
+  text: 'Click Me!',
+  color: 'white',
+  fontSize: 18,
+}))
+uiEntity.addComponent(createUIButton())
+uiEntity.addComponent(createScript({
+  onUpdate(_dt, entity) {
+    const button = entity.getComponent<any>('uiButton')
+    const ui = entity.getComponent<any>('ui')
+    const text = entity.getComponent<any>('uiText')
+    if (button && ui && text) {
+      if (button.isPressed) {
+        ui.backgroundColor = '#8a4a4a'
+        text.text = 'Pressed!'
+      } else if (button.isHovered) {
+        ui.backgroundColor = '#5a5a9a'
+        text.text = 'Hovered!'
+      } else {
+        ui.backgroundColor = '#4a4a8a'
+        text.text = 'Click Me!'
+      }
+    }
+  }
+}))
+
 // --- Systems ---
 const physicsSystem = new PhysicsSystem(engine.scene)
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
+const uiSystem = new UISystem(engine.scene)
 
 
 // --- Engine Frame Lifecycle Wiring ---
@@ -115,6 +153,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   scriptSystem.update(deltaTime)
   animationSystem.update(deltaTime)
   meshRendererSystem.sync()
+  uiSystem.update(deltaTime)
 
   const activeCamera = cameraSystem.sync()
   if (activeCamera) {
