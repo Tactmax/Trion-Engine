@@ -15,8 +15,6 @@ All notable changes are documented here as implementation milestones.
 - Added UI, UIButton and UIText components.
 - Added UISystem bridging ECS UI components to the browser DOM with lifecycle cleanup.
 
-## Unreleased milestones
-
 ### ECS and runtime foundation
 
 - Added the Engine frame loop and Scene/Entity/Component runtime model.
