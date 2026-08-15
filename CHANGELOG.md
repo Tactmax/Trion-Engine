@@ -1,6 +1,19 @@
 # Changelog
 
-All notable changes are documented here as implementation milestones. Trion has not established versioned releases yet.
+All notable changes are documented here as implementation milestones.
+
+## [0.8.2] - 2026-08-11
+
+### Physics runtime
+
+- Added BoxCollider and SphereCollider components.
+- Added RigidBody component with velocity, gravity, drag and mass controls.
+- Added PhysicsSystem and RapierPhysicsBackend for backend-agnostic simulation.
+
+### UI runtime
+
+- Added UI, UIButton and UIText components.
+- Added UISystem bridging ECS UI components to the browser DOM with lifecycle cleanup.
 
 ## Unreleased milestones
 

@@ -13,6 +13,9 @@ This roadmap distinguishes implemented work from planned future directions. It i
 - Scene queries with optional entity names and tags.
 - JSON-compatible scene serialization with entity ID preservation.
 - GLTF/GLB loading with deterministic asset IDs, animation clip registration and hierarchy-preserving animation roots.
+- RigidBody, BoxCollider and SphereCollider components.
+- PhysicsSystem and RapierPhysicsBackend for backend-agnostic simulation.
+- UI, UIButton and UIText components with DOM-backed UISystem.
 
 ## In progress
 
@@ -23,9 +26,7 @@ This roadmap distinguishes implemented work from planned future directions. It i
 
 Potential next steps, subject to design and prioritization:
 
-- Physics integration.
 - Editor tooling and scene authoring workflows.
-- UI system support.
 - Networking or multiplayer-oriented runtime capabilities.
 - Additional rendering backends beyond Three.js/WebGL.
 
