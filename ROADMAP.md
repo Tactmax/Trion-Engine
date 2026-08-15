@@ -29,6 +29,7 @@ Potential next steps, subject to design and prioritization:
 - Editor tooling and scene authoring workflows.
 - Networking or multiplayer-oriented runtime capabilities.
 - Additional rendering backends beyond Three.js/WebGL.
+- Additional physics backends such as PhysX, Bullet.js, Jolt.
 
 ## Long-term / experimental
 
