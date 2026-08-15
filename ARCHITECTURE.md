@@ -8,13 +8,13 @@ Trion separates runtime data from rendering implementation. The ECS is the runti
 Game code
     |
     v
-Engine -> Scene -> Entities -> Components
-                     |
-                     v
-             Script / physics / graphics systems
-                     |
-                     v
-          Renderer + AssetManager + Three.js + PhysicsBackend
+Engine -> SceneManager -> Scene -> Entities -> Components
+                                |
+                                v
+                        Script / physics / graphics systems
+                                |
+                                v
+                 Renderer + AssetManager + Three.js + PhysicsBackend
 ```
 
 This keeps gameplay data independent from the scene graph and lets systems own their synchronization state without making Three.js objects part of component data.
@@ -25,7 +25,7 @@ This keeps gameplay data independent from the scene graph and lets systems own t
 
 ```text
 onPreUpdate(deltaTime)
-Scene.update(deltaTime)
+SceneManager.getActiveScene().update(deltaTime)
 onPostUpdate(deltaTime)
 ```
 
@@ -35,7 +35,11 @@ This preserves a single frame loop while allowing a host application to choose s
 
 ## ECS design and ownership
 
+`Engine` owns a `SceneManager`. `SceneManager` is an orchestration layer: it stores, retrieves and replaces the currently active `Scene` reference. It is not an ECS layer and does not create entities, run queries or serialize scenes.
+
 `Scene` is the sole owner of `Entity` instances in a private ID-keyed map. It creates and destroys entities, owns instantiation, querying and serialization. Entities hold a private map of components keyed by `component.type`.
+
+`engine.scene` remains a convenience getter for `engine.sceneManager.getActiveScene()`. Systems still receive a `Scene` at construction and keep that reference; replacing the active Scene does not retarget existing systems.
 
 Components are plain ECS data with an optional `update(deltaTime)` method. Built-in components are:
 
@@ -200,7 +204,7 @@ The application must call `beginFrame` and `endFrame` in its Engine callback wir
 - Add gameplay behavior as component data plus systems that operate on Scene data.
 - Keep Three.js-specific code in `src/engine/graphics/`.
 - Keep DOM-specific UI behavior in `src/engine/systems/UISystem.ts`; keep UI components pure data in `src/engine/components/ui/`.
-- Preserve ownership: Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle.
+- Preserve ownership: SceneManager owns the active Scene reference, Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle.
 - Use asset IDs in ECS rendering data rather than Three.js resource references.
 - Avoid global engine singletons, duplicate entity registries and premature query indexes.
 - Integrate additional framework work through Engine callbacks unless the Engine lifecycle is deliberately evolved as a separate architectural change.

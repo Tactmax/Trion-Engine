@@ -1,7 +1,13 @@
 import { Scene } from './Scene.ts'
+import { SceneManager } from './SceneManager.ts'
 
 export class Engine {
-  readonly scene = new Scene()
+  readonly sceneManager = new SceneManager()
+
+  /** Currently active ECS Scene. Convenience accessor for sceneManager.getActiveScene(). */
+  get scene(): Scene {
+    return this.sceneManager.getActiveScene()
+  }
 
   /**
    * Called once per frame before scene.update(deltaTime).

@@ -2,6 +2,13 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [0.8.3] - 2026-08-15
+
+### ECS and runtime
+- Added `SceneManager` as the runtime owner of the currently active `Scene` reference.
+- `Engine` now owns a `SceneManager`; `engine.scene` is a convenience getter for the active Scene.
+- `SceneManager` stores, retrieves and replaces the active Scene, and can release that reference via `dispose()`. It does not own entities or replace Scene.
+
 ## [0.8.2] - 2026-08-11
 
 ### Physics runtime

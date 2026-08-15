@@ -15,6 +15,7 @@ Rendering backend: Three.js / WebGL
 ## Features
 
 - Engine lifecycle driven by a single `requestAnimationFrame` loop
+- SceneManager ownership of the active Scene reference
 - Scene, Entity and Component ECS runtime
 - Transform, Camera, MeshRenderer, Script and Animation components
 - Perspective and orthographic camera synchronization
@@ -35,26 +36,26 @@ Rendering backend: Three.js / WebGL
 Game code
     |
     v
-Engine -> Scene -> Entity / Component data
-                      |
-                      v
-                   Systems (e.g. PhysicsSystem, ScriptSystem)
-                      |
-                      v
-       Renderer / AssetManager / Three.js / PhysicsBackend
+Engine -> SceneManager -> Scene -> Entity / Component data
+                                      |
+                                      v
+                                   Systems (e.g. PhysicsSystem, ScriptSystem)
+                                      |
+                                      v
+                   Renderer / AssetManager / Three.js / PhysicsBackend
 ```
 
-`Scene` owns entities. Systems read ECS data and synchronize Three.js objects behind the graphics boundary. `AssetManager` owns registered geometries, materials, textures, animation clips and animation roots; `MeshRendererComponent` and `AnimationComponent` refer to them by string ID.
+`SceneManager` holds the active `Scene` reference. `Scene` owns entities. Systems read ECS data and synchronize Three.js objects behind the graphics boundary. `AssetManager` owns registered geometries, materials, textures, animation clips and animation roots; `MeshRendererComponent` and `AnimationComponent` refer to them by string ID.
 
 ## Runtime lifecycle
 
-`Engine` runs the frame loop. It calls `onPreUpdate`, updates the `Scene`, then calls `onPostUpdate`. Input and systems are wired by the application in `src/main.ts`:
+`Engine` runs the frame loop. It calls `onPreUpdate`, updates the active `Scene` through `SceneManager`, then calls `onPostUpdate`. Input and systems are wired by the application in `src/main.ts`:
 
 ```text
 requestAnimationFrame
     -> Engine.tick(deltaTime)
     -> onPreUpdate(deltaTime)      // Input.beginFrame()
-    -> Scene.update(deltaTime)
+    -> SceneManager.getActiveScene().update(deltaTime)
     -> onPostUpdate(deltaTime)     // systems + render + Input.endFrame()
 ```
 
@@ -72,6 +73,7 @@ import {
 
 const engine = new Engine()
 
+// engine.scene is the active Scene held by engine.sceneManager
 const camera = engine.scene.createEntity({ name: 'Main Camera' })
 camera.addComponent(createTransform({ x: 0, y: 1.2, z: 4 }))
 camera.addComponent(createCamera())
@@ -102,6 +104,23 @@ const cube = engine.scene.instantiate(cubePrefab, {
   transform: { position: { x: 2, y: 0, z: 0 } },
 })
 ```
+
+## SceneManager
+
+`SceneManager` is a runtime owner for the currently active `Scene`. It stores, retrieves and replaces that reference. It does not own entities or replace `Scene`.
+
+```ts
+const engine = new Engine()
+const next = new Scene()
+
+engine.sceneManager.setActiveScene(next)
+engine.sceneManager.getActiveScene() // === next
+engine.scene // same Scene; convenience getter
+
+engine.sceneManager.dispose() // drops the reference; does not clear the Scene
+```
+
+Systems constructed with a `Scene` keep that instance. Replacing the active Scene does not retarget them.
 
 ## Scene queries
 
@@ -229,7 +248,7 @@ Preview the production build with `npm run preview`.
 src/
   engine/
     components/  ECS component data and factories (including ui/)
-    core/        Engine, Scene, Entity, Prefab, serialization
+    core/        Engine, SceneManager, Scene, Entity, Prefab, serialization
     graphics/    Renderer, AssetManager, camera/mesh systems, GLTF loading
     input/       DOM input service
     physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
@@ -240,7 +259,7 @@ src/
 ## Design philosophy
 
 - Keep ECS data separate from rendering implementation details.
-- Make ownership explicit: Scene owns entities; AssetManager owns registered GPU resources; Renderer owns the scene graph and WebGL context.
+- Make ownership explicit: SceneManager owns the active Scene reference; Scene owns entities; AssetManager owns registered GPU resources; Renderer owns the scene graph and WebGL context.
 - Prefer small APIs and direct iteration over premature abstractions.
 - Keep Three.js-specific code inside the graphics boundary.
 

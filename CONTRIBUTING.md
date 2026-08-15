@@ -28,6 +28,7 @@ npm run build
 
 ## Code and architecture expectations
 
+- Keep `SceneManager` as the owner of the active `Scene` reference. It is not an ECS layer.
 - Keep `Scene` as the owner of entities.
 - Keep components as data; do not embed Three.js resource ownership in ECS components.
 - Keep Three.js-specific behavior in `src/engine/graphics/`.
@@ -52,4 +53,4 @@ Keep commits and pull requests narrow. Include:
 - Test/build results.
 - Known limitations or follow-up work.
 
-Avoid speculative abstractions. New systems should fit the current Engine → Scene → Entity/Component → System model rather than bypassing it.
+Avoid speculative abstractions. New systems should fit the current Engine → SceneManager → Scene → Entity/Component → System model rather than bypassing it.

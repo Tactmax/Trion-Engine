@@ -132,7 +132,7 @@ const uiSystem = new UISystem(engine.scene)
 //     ↓
 // Input.beginFrame()          (latches accumulators via engine.onPreUpdate)
 //     ↓
-// Scene.update(deltaTime)     (ECS update)
+// SceneManager active Scene.update(deltaTime)
 //     ↓
 // ScriptSystem.update(dt)     (scripts execute & query Input API)
 //     ↓

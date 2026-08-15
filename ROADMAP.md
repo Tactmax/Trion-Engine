@@ -4,7 +4,7 @@ This roadmap distinguishes implemented work from planned future directions. It i
 
 ## Implemented
 
-- ECS runtime: Engine, Scene, Entity and Component foundations.
+- ECS runtime: Engine, SceneManager, Scene, Entity and Component foundations.
 - Transform, Camera, MeshRenderer, Script and Animation components.
 - Three.js-backed Renderer, MeshRendererSystem, CameraSystem and AnimationSystem.
 - AssetManager ownership for geometry, materials, textures, animation clips and animation roots.

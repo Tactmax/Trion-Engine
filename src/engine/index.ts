@@ -1,4 +1,4 @@
-export { Engine, Entity, Prefab, Scene, createPrefab } from './core/index.ts'
+export { Engine, Entity, Prefab, Scene, SceneManager, createPrefab } from './core/index.ts'
 export type { EntityMetadata, JsonValue, PrefabOverrides, SceneData, SerializedEntity } from './core/index.ts'
 export type { Component } from './components/Component.ts'
 export { createTransform } from './components/Transform.ts'
