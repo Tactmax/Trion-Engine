@@ -40,7 +40,7 @@ npm run build
 
 ## Testing
 
-At minimum, run `npm run build`. Add a focused runtime smoke test when practical, especially for lifecycle, asset ownership or rendering-boundary changes. Document any browser-only validation that cannot be automated locally.
+At minimum, run `npm run build`. Automated tests are intentionally postponed; a testing framework may be added later. For now, verify changes with a manual runtime smoke check in the browser, especially for lifecycle, asset ownership, rendering-boundary, physics or UI changes. Document any browser-only validation that cannot be automated locally.
 
 ## Pull requests
 

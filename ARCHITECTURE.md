@@ -46,6 +46,9 @@ Components are plain ECS data with an optional `update(deltaTime)` method. Built
 - `animation`: asset ID, clip list, active clip, playback state and looping.
 - `rigidBody`: physics body type (`dynamic` or `fixed`).
 - `boxCollider` / `sphereCollider`: collision shape descriptions.
+- `ui`: position, size, visibility and optional background color.
+- `uiText`: text content, color and font size.
+- `uiButton`: interaction state (`interactable`, `isHovered`, `isPressed`).
 
 Systems query the Scene rather than owning entities. This prevents parallel ownership models and keeps ECS data central.
 
@@ -58,6 +61,8 @@ Systems query the Scene rather than owning entities. This prevents parallel owne
 `AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data.
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
+
+`UISystem` queries entities with a `UIComponent`, creates or reuses a DOM element per entity, synchronizes position, size, visibility and background color from the component, updates text content from `UITextComponent`, and manages pointer interaction state for `UIButtonComponent`. It removes DOM elements when the entity or `UIComponent` is destroyed.
 
 ## Physics architecture
 
@@ -86,6 +91,24 @@ RigidBodyComponent / BoxColliderComponent
 - **RapierPhysicsBackend:** The *only* file in the engine allowed to import from `@dimforge/rapier3d-compat`. It translates between the engine's `PhysVec3` and Rapier's `Vector3`, handles Euler to Quaternion conversions, and manages the internal mappings between engine handles and Rapier objects.
 
 To replace Rapier with Bullet or Jolt, a new backend class implementing `PhysicsBackend` can be created and passed to `physicsSystem.setBackend()`. No engine components or systems need to change.
+
+## UI architecture
+
+```text
+UIComponent / UITextComponent / UIButtonComponent
+                    |
+                    v
+              UISystem
+                    |
+                    v
+              Browser DOM
+```
+
+- **Data Components:** `UIComponent`, `UITextComponent`, and `UIButtonComponent` are pure ECS data types. They contain no callback functions and no DOM object references.
+- **UISystem:** Driven via the engine's `onPostUpdate`, it creates a root UI container on `document.body`, manages child DOM elements mapped to entity IDs, synchronizes component data to element styles, and cleans up DOM nodes when entities or components are removed.
+- **Interaction model:** `UISystem` attaches pointer event listeners to each UI element's DOM node. On `pointerenter`/`pointerleave`/`pointerdown`/`pointerup`, it mutates the corresponding `UIButtonComponent` (`isHovered`, `isPressed`). Game scripts read this state; they do not register callbacks on the component.
+- **No Three.js dependency:** UI does not depend on the rendering boundary. The DOM container overlays the canvas via absolute positioning.
+- **Ownership:** `UISystem` owns the DOM lifecycle. Components are data only.
 
 ## Rendering boundary
 
@@ -176,7 +199,8 @@ The application must call `beginFrame` and `endFrame` in its Engine callback wir
 
 - Add gameplay behavior as component data plus systems that operate on Scene data.
 - Keep Three.js-specific code in `src/engine/graphics/`.
-- Preserve ownership: Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure.
+- Keep DOM-specific UI behavior in `src/engine/systems/UISystem.ts`; keep UI components pure data in `src/engine/components/ui/`.
+- Preserve ownership: Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle.
 - Use asset IDs in ECS rendering data rather than Three.js resource references.
 - Avoid global engine singletons, duplicate entity registries and premature query indexes.
 - Integrate additional framework work through Engine callbacks unless the Engine lifecycle is deliberately evolved as a separate architectural change.

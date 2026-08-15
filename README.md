@@ -27,6 +27,7 @@ Rendering backend: Three.js / WebGL
 - Texture loading and texture-backed standard material creation by asset ID
 - Animation support via `AnimationComponent`, `AnimationSystem` and `AnimationMixer`
 - Backend-agnostic physics architecture with an initial Rapier implementation
+- DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
 
 ## Architecture
 
@@ -184,6 +185,29 @@ physicsSystem.setBackend(backend)
 
 The engine-facing API contains absolutely zero backend-specific types (e.g., no Rapier objects). All Rapier interactions are isolated entirely within `RapierPhysicsBackend.ts`. Adding another backend (like Ammo.js or Jolt) would simply involve creating a new class that implements the `PhysicsBackend` interface, with no changes needed in `PhysicsSystem` or the ECS components.
 
+## UI
+
+Trion includes a minimal DOM-backed UI subsystem implemented as an ECS system.
+
+The engine provides three pure ECS UI components:
+- `UIComponent` (`createUI`): Position, size, visibility and optional background color.
+- `UITextComponent` (`createUIText`): Text content, color and font size.
+- `UIButtonComponent` (`createUIButton`): Interaction state (`interactable`, `isHovered`, `isPressed`).
+
+The `UISystem` bridges these pure data components to the browser DOM.
+
+```ts
+import { UISystem } from './engine/index.ts'
+
+const uiSystem = new UISystem(engine.scene)
+// Call uiSystem.update(deltaTime) in your engine.onPostUpdate
+```
+
+- UI components contain only engine-facing data — no callbacks, no DOM references.
+- `UISystem` owns the DOM lifecycle: it creates a root container, manages child elements per entity, and cleans up on entity/component removal.
+- `UIButtonComponent` interaction state (`isHovered`, `isPressed`) is written by `UISystem` from DOM pointer events and read by game scripts.
+- UI does not depend on Three.js rendering; it overlays the canvas via a full-viewport DOM container.
+
 ## Build and run
 
 ```bash
@@ -204,12 +228,12 @@ Preview the production build with `npm run preview`.
 ```text
 src/
   engine/
-    components/  ECS component data and factories
+    components/  ECS component data and factories (including ui/)
     core/        Engine, Scene, Entity, Prefab, serialization
     graphics/    Renderer, AssetManager, camera/mesh systems, GLTF loading
     input/       DOM input service
     physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
-    systems/     Runtime systems (Script, Animation)
+    systems/     Runtime systems (Script, Animation, UI)
   main.ts        Browser demo and engine wiring
 ```
 
@@ -222,7 +246,7 @@ src/
 
 ## Current limitations
 
-- No audio, UI, networking, editor or WebGPU backend.
+- No audio, networking, editor or WebGPU backend.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.
