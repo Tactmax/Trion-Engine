@@ -24,6 +24,7 @@ import {
 import * as THREE from 'three'
 import type { TransformComponent } from './engine/components/Transform.ts'
 import type { AudioComponent } from './engine/components/Audio.ts'
+import { Editor } from './editor/index.ts'
 
 // --- Canvas ---
 const canvas = document.createElement('canvas')
@@ -99,7 +100,7 @@ void assets.loadAudio('demo-audio', '/assets/Amen%20in%20a%20nutshell.mp3').then
       const audio = entity.getComponent<AudioComponent>('audio')
       if (!audio || audio.playing) return
       if (input.getMouseButtonDown(0) || input.getKeyDown('Space')) {
-        audio.playing = true
+        audio.playing = false
       }
     },
   }))
@@ -146,6 +147,7 @@ const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSy
 const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
+const editor = new Editor(engine.sceneManager, canvas)
 
 
 // --- Engine Frame Lifecycle Wiring ---
@@ -179,6 +181,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   audioSystem.update(deltaTime)
   meshRendererSystem.sync()
   uiSystem.update(deltaTime)
+  editor.update()
 
   const activeCamera = cameraSystem.sync()
   if (activeCamera) {

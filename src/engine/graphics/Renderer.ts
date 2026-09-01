@@ -13,18 +13,23 @@ export class Renderer {
   private readonly meshes = new Map<number, THREE.Mesh>()
 
   private readonly onResize: () => void
+  private readonly resizeObserver: ResizeObserver
 
   constructor(canvas: HTMLCanvasElement) {
     this.webgl = new THREE.WebGLRenderer({ canvas, antialias: true })
     this.webgl.setPixelRatio(window.devicePixelRatio)
-    this.webgl.setSize(window.innerWidth, window.innerHeight)
-
-    this.scene = new THREE.Scene()
 
     this.onResize = () => {
-      this.webgl.setSize(window.innerWidth, window.innerHeight)
+      const width = canvas.clientWidth || window.innerWidth
+      const height = canvas.clientHeight || window.innerHeight
+      this.webgl.setSize(width, height, false)
     }
+    this.onResize()
     window.addEventListener('resize', this.onResize)
+    this.resizeObserver = new ResizeObserver(this.onResize)
+    this.resizeObserver.observe(canvas)
+
+    this.scene = new THREE.Scene()
   }
 
   /** Set the scene's solid background color. */
@@ -91,6 +96,7 @@ export class Renderer {
   /** Release the WebGL context, clear the mesh map, and remove the resize listener. */
   dispose(): void {
     window.removeEventListener('resize', this.onResize)
+    this.resizeObserver.disconnect()
     this.meshes.clear()
     this.webgl.dispose()
   }

@@ -8,7 +8,7 @@ Trion is under active development. The current runtime provides an ECS core, a T
 
 Current runtime: Web
 
-Editor: Planned desktop application
+Editor: Browser-based foundation (hierarchy, selection and Transform inspection)
 
 Rendering backend: Three.js / WebGL
 
@@ -30,6 +30,7 @@ Rendering backend: Three.js / WebGL
 - Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
+- Browser editor foundation with hierarchy, entity selection, Transform editing and the existing renderer viewport
 
 ## Architecture
 
@@ -254,6 +255,7 @@ src/
     input/       DOM input service
     physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
     systems/     Runtime systems (Script, Animation, UI)
+  editor/         Browser editor UI kept separate from the runtime engine
   main.ts        Browser demo and engine wiring
 ```
 
@@ -266,7 +268,8 @@ src/
 
 ## Current limitations
 
-- No networking, editor or WebGPU backend.
+- No networking or WebGPU backend.
+- The editor foundation intentionally excludes gizmos, undo/redo, asset browsing, prefab editing, scene save/load workflows and play mode.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.

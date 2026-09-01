@@ -2,6 +2,14 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [1.0.0] - 2026-09-01
+
+### Editor foundation
+
+- Added a browser-based editor shell with a scene hierarchy, entity selection and a Transform inspector.
+- Added create and delete actions that operate through the active `Scene` API.
+- Integrated the existing Three.js canvas as the editor viewport without adding a renderer or engine loop.
+
 ## [0.8.4] - 2026-09-01
 
 ### Audio runtime
