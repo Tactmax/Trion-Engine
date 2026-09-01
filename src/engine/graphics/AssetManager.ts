@@ -35,6 +35,7 @@ export class AssetManager {
   private readonly textures = new Map<string, THREE.Texture>()
   private readonly animations = new Map<string, THREE.AnimationClip>()
   private readonly animationRoots = new Map<string, THREE.Object3D>()
+  private readonly audioBuffers = new Map<string, AudioBuffer>()
   private readonly gltfAssets = new Map<string, GLTFAssetResult>()
 
   /**
@@ -187,6 +188,48 @@ export class AssetManager {
   }
 
   /**
+   * Load and register an audio buffer. Ownership transfers to AssetManager
+   * only after the asynchronous load succeeds.
+   */
+  async loadAudio(id: string, url: string): Promise<AudioBuffer> {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const decodeContext = new AudioContext()
+      try {
+        const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer.slice(0))
+        this.registerAudioBuffer(id, audioBuffer)
+        return audioBuffer
+      } finally {
+        await decodeContext.close()
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to load audio "${id}" from "${url}": ${detail}`, { cause: error })
+    }
+  }
+
+  registerAudioBuffer(id: string, audioBuffer: AudioBuffer): void {
+    this.audioBuffers.set(id, audioBuffer)
+  }
+
+  getAudioBuffer(id: string): AudioBuffer | undefined {
+    return this.audioBuffers.get(id)
+  }
+
+  hasAudioBuffer(id: string): boolean {
+    return this.audioBuffers.has(id)
+  }
+
+  removeAudioBuffer(id: string): void {
+    this.audioBuffers.delete(id)
+  }
+
+  /**
    * Remove and dispose a material by ID.
    * Any THREE.Mesh still referencing this material will render incorrectly.
    * MeshRendererSystem must rebuild affected meshes after removal.
@@ -283,6 +326,7 @@ export class AssetManager {
     this.textures.clear()
     this.animations.clear()
     this.animationRoots.clear()
+    this.audioBuffers.clear()
     this.gltfAssets.clear()
   }
 

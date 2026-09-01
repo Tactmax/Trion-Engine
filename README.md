@@ -27,6 +27,7 @@ Rendering backend: Three.js / WebGL
 - Asynchronous GLTF/GLB loading into `AssetManager` with geometry, material, animation clip and animation-root registration
 - Texture loading and texture-backed standard material creation by asset ID
 - Animation support via `AnimationComponent`, `AnimationSystem` and `AnimationMixer`
+- Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
 
@@ -265,7 +266,7 @@ src/
 
 ## Current limitations
 
-- No audio, networking, editor or WebGPU backend.
+- No networking, editor or WebGPU backend.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.

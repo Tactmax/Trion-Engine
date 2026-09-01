@@ -7,12 +7,14 @@ import {
   CameraSystem,
   ScriptSystem,
   AnimationSystem,
+  AudioSystem,
   Input,
   PhysicsSystem,
   createTransform,
   createMeshRenderer,
   createCamera,
   createAnimation,
+  createAudio,
   createScript,
   createUI,
   createUIText,
@@ -21,6 +23,7 @@ import {
 } from './engine/index.ts'
 import * as THREE from 'three'
 import type { TransformComponent } from './engine/components/Transform.ts'
+import type { AudioComponent } from './engine/components/Audio.ts'
 
 // --- Canvas ---
 const canvas = document.createElement('canvas')
@@ -82,6 +85,26 @@ void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) 
   )
 })
 
+// Demo Entity 4: Audio (plays on click or Space after asset load)
+const audioEntity = engine.scene.createEntity()
+void assets.loadAudio('demo-audio', '/assets/Amen%20in%20a%20nutshell.mp3').then(() => {
+  audioEntity.addComponent(createAudio({
+    assetId: 'demo-audio',
+    playing: false,
+    loop: false,
+    volume: 0.5,
+  }))
+  audioEntity.addComponent(createScript({
+    onUpdate(_dt, entity) {
+      const audio = entity.getComponent<AudioComponent>('audio')
+      if (!audio || audio.playing) return
+      if (input.getMouseButtonDown(0) || input.getKeyDown('Space')) {
+        audio.playing = true
+      }
+    },
+  }))
+})
+
 // Demo Entity 3: Minimal UI Button
 const uiEntity = engine.scene.createEntity()
 uiEntity.addComponent(createUI({
@@ -120,6 +143,7 @@ const physicsSystem = new PhysicsSystem(engine.scene)
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
+const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
 
@@ -152,6 +176,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   physicsSystem.update(deltaTime)
   scriptSystem.update(deltaTime)
   animationSystem.update(deltaTime)
+  audioSystem.update(deltaTime)
   meshRendererSystem.sync()
   uiSystem.update(deltaTime)
 

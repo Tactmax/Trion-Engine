@@ -2,6 +2,14 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [0.8.4] - 2026-09-01
+
+### Audio runtime
+
+- Added `AudioComponent` and `createAudio()` for engine-facing playback state.
+- Added `AudioSystem` using the native Web Audio API with shared context, volume, loop, mute and lifecycle cleanup.
+- Extended `AssetManager` with `loadAudio()` and audio buffer registration by asset ID.
+
 ## [0.8.3] - 2026-08-15
 
 ### ECS and runtime
