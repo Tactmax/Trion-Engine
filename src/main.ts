@@ -147,7 +147,7 @@ const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSy
 const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
-const editor = new Editor(engine.sceneManager, canvas)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem)
 
 
 // --- Engine Frame Lifecycle Wiring ---
@@ -166,7 +166,7 @@ const editor = new Editor(engine.sceneManager, canvas)
 //     ↓
 // CameraSystem.sync()         (ECS -> Three.js camera sync)
 //     ↓
-// Renderer.render()           (draw call)
+// Renderer.render()           (draw call: editor camera in editor mode, activeCamera at runtime)
 //     ↓
 // Input.endFrame()            (resets transient frame deltas & triggers)
 //
@@ -184,8 +184,9 @@ engine.onPostUpdate = (deltaTime: number) => {
   editor.update()
 
   const activeCamera = cameraSystem.sync()
-  if (activeCamera) {
-    renderer.render(activeCamera)
+  const renderCamera = editor.isEditorViewActive() ? editor.getCamera() : activeCamera
+  if (renderCamera) {
+    renderer.render(renderCamera)
   }
 
   input.endFrame()

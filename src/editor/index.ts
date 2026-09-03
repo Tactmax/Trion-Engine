@@ -1,1 +1,8 @@
 export { Editor } from './Editor.ts'
+export { SelectionState } from './SelectionState.ts'
+export { EditorCamera } from './EditorCamera.ts'
+export { EditorGrid } from './EditorGrid.ts'
+export { EntityPicker } from './EntityPicker.ts'
+export { SelectionHighlight } from './SelectionHighlight.ts'
+export { GizmoController } from './GizmoController.ts'
+export type { GizmoMode } from './GizmoController.ts'

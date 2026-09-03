@@ -3,6 +3,7 @@ import type { Entity, TransformComponent, Vec3 } from '../engine/index.ts'
 /** Inspector limited to the first editable component: Transform. */
 export class InspectorPanel {
   readonly element: HTMLElement
+  private readonly currentInputs = new Map<string, HTMLInputElement>()
 
   constructor() {
     this.element = document.createElement('aside')
@@ -10,6 +11,7 @@ export class InspectorPanel {
   }
 
   render(entity: Entity | null): void {
+    this.currentInputs.clear()
     this.element.replaceChildren()
     const header = document.createElement('div')
     header.className = 'trion-editor-panel-header'
@@ -52,7 +54,25 @@ export class InspectorPanel {
     this.element.appendChild(section)
   }
 
+  syncValues(transform: TransformComponent): void {
+    const fields = [
+      { prefix: 'position', vec: transform.position },
+      { prefix: 'rotation', vec: transform.rotation },
+      { prefix: 'scale', vec: transform.scale },
+    ]
+    for (const { prefix, vec } of fields) {
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const input = this.currentInputs.get(`${prefix}.${axis}`)
+        if (input && document.activeElement !== input) {
+          const val = Number(vec[axis])
+          input.value = String(Number(val.toFixed(3)))
+        }
+      }
+    }
+  }
+
   dispose(): void {
+    this.currentInputs.clear()
     this.element.remove()
   }
 
@@ -69,6 +89,7 @@ export class InspectorPanel {
     const title = document.createElement('h3')
     title.textContent = label
     group.appendChild(title)
+    const prefix = label.toLowerCase()
     for (const axis of ['x', 'y', 'z'] as const) {
       const field = document.createElement('label')
       field.textContent = axis.toUpperCase()
@@ -77,11 +98,12 @@ export class InspectorPanel {
       input.step = '0.01'
       input.inputMode = 'decimal'
       input.setAttribute('aria-label', `${label} ${axis.toUpperCase()}`)
-      input.value = String(vector[axis])
+      input.value = String(Number(Number(vector[axis]).toFixed(3)))
       input.addEventListener('input', () => {
         const value = input.valueAsNumber
         if (Number.isFinite(value)) vector[axis] = value
       })
+      this.currentInputs.set(`${prefix}.${axis}`, input)
       field.appendChild(input)
       group.appendChild(field)
     }
