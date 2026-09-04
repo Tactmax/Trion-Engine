@@ -8,7 +8,7 @@ Trion is under active development. The current runtime provides an ECS core, a T
 
 Current runtime: Web
 
-Editor: Browser-based foundation (hierarchy, selection and Transform inspection)
+Editor: Browser-based editor (hierarchy, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera)
 
 Rendering backend: Three.js / WebGL
 
@@ -30,7 +30,7 @@ Rendering backend: Three.js / WebGL
 - Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
-- Browser editor foundation with hierarchy, entity selection, Transform editing and the existing renderer viewport
+- Browser editor with hierarchy, entity selection and picking, Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, and a WASD editor camera over the existing renderer viewport
 
 ## Architecture
 
@@ -61,7 +61,7 @@ requestAnimationFrame
     -> onPostUpdate(deltaTime)     // systems + render + Input.endFrame()
 ```
 
-The demo post-update callback runs `ScriptSystem`, `AnimationSystem`, `MeshRendererSystem`, camera synchronization and `Renderer.render()`.
+The demo post-update callback runs physics and script/audio/UI updates only in Play Mode, while `AnimationSystem`, `MeshRendererSystem`, editor updates, camera synchronization and `Renderer.render()` run in both modes. The editor camera renders the viewport in edit mode; the runtime camera takes over in Play Mode. See [Editor](#editor) for the editor-side behavior.
 
 ## Basic usage
 
@@ -151,7 +151,7 @@ Serialization stores entity IDs, optional names/tags and JSON-compatible compone
 `AssetManager.loadGLTF(id, url)` loads meshes, animation clips and an animation root from a GLTF or GLB asset. The returned IDs can be passed directly to `createMeshRenderer` and `createAnimation`.
 
 ```ts
-const imported = await assets.loadGLTF('test-animation', '/assets/test-animation.glb')
+const imported = await assets.loadGLTF('rubiks-cube', '/assets/rubiks-cube.glb')
 const selectedClip = imported.animations[0]
 
 const animatedEntity = engine.scene.createEntity({ name: 'Animated Mesh' })
@@ -169,7 +169,7 @@ animatedEntity.addComponent(createAnimation({
 }))
 ```
 
-For mesh index `0`, geometry and material IDs are `test-animation/mesh/0` and `test-animation/material/0`. Animation clip IDs are emitted as `test-animation/animation/<index>`. Multi-material meshes currently use their first material because `MeshRendererComponent` supports one material ID.
+For mesh index `0`, geometry and material IDs are `rubiks-cube/mesh/0` and `rubiks-cube/material/0`. Animation clip IDs are emitted as `rubiks-cube/animation/<index>`. Multi-material meshes currently use their first material because `MeshRendererComponent` supports one material ID. The bundled demo loads `/assets/rubiks-cube.glb` this way for its Rubik's cube entity.
 
 ## Animation support
 
@@ -229,6 +229,17 @@ const uiSystem = new UISystem(engine.scene)
 - `UIButtonComponent` interaction state (`isHovered`, `isPressed`) is written by `UISystem` from DOM pointer events and read by game scripts.
 - UI does not depend on Three.js rendering; it overlays the canvas via a full-viewport DOM container.
 
+## Editor
+
+The browser editor (`src/editor/`, wired in `src/main.ts`) edits the live `Scene` through the public ECS API:
+
+- Hierarchy panel, viewport click-to-select picking, selection highlight box, and a Transform inspector.
+- Move/Rotate/Scale gizmos (`J`/`K`/`L`) driven by Three.js `TransformControls`; the `TransformComponent` stays authoritative and gizmo drags are undoable.
+- Animated entities are gizmoed, picked and highlighted via their `AnimationSystem` target (`AnimationSystem.getTarget()`), which carries the world transform; the renderer mesh underneath it is never driven directly.
+- Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`, 50 entries) covers Transform edits and entity create/delete. History is editor-only and disabled in Play Mode; undo/redo push state to the viewport in the same tick.
+- Play Mode (`F5` / `▶ Play`, `F8` / `⏹ Stop`) snapshots the scene, runs physics/scripts/audio/UI against the runtime camera, then restores the exact pre-play state on stop and discards runtime changes.
+- Editor camera: right-drag orbits (horizontal follows the drag), middle-drag pans, wheel zooms, `WASD` moves while hovering the viewport, `Alt`+left-drag orbits. Camera input suspends during gizmo drags and Play Mode.
+
 ## Build and run
 
 ```bash
@@ -269,7 +280,7 @@ src/
 ## Current limitations
 
 - No networking or WebGPU backend.
-- The editor foundation intentionally excludes gizmos, undo/redo, asset browsing, prefab editing, scene save/load workflows and play mode.
+- The editor intentionally excludes asset browsing, prefab editing and scene save/load workflows.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.

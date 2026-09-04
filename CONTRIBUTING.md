@@ -35,6 +35,7 @@ npm run build
 - Keep physics-specific behavior in `src/engine/physics/`.
 - Keep DOM-specific UI behavior in `src/engine/systems/UISystem.ts`; keep UI components pure data in `src/engine/components/ui/`.
 - Respect resource ownership: AssetManager owns registered geometries/materials, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle, and systems borrow resources.
+- Keep editor behavior editor-side in `src/editor/`: selection flows through `SelectionState`, history stays editor-only and disabled in Play Mode, and animated entities resolve to their `AnimationSystem` target for gizmos, picking and highlights.
 - Prefer simple APIs and explicit control flow over new managers, registries or abstractions without a demonstrated need.
 - Do not mix unrelated cleanup or refactors into feature work.
 - Preserve public APIs unless a breaking change is explicitly discussed.

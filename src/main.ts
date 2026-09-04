@@ -26,11 +26,9 @@ import type { TransformComponent } from './engine/components/Transform.ts'
 import type { AudioComponent } from './engine/components/Audio.ts'
 import { Editor } from './editor/index.ts'
 
-// --- Canvas ---
 const canvas = document.createElement('canvas')
 document.body.appendChild(canvas)
 
-// --- Subsystems ---
 const renderer = new Renderer(canvas)
 renderer.setBackground(0x1a1a2e)
 
@@ -44,16 +42,13 @@ const assets = new AssetManager()
 
 const input = new Input()
 
-// --- ECS ---
 const engine = new Engine()
 
-// Demo Entity 1: Camera
 const cameraEntity = engine.scene.createEntity()
 cameraEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 2.5 }))
 cameraEntity.addComponent(createCamera())
 
-// Demo Entity 2: Rubik's Cube (loaded from GLB)
-void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) => {
+void assets.loadGLTF('rubiks-cube', '/assets/rubiks-cube.glb').then((result) => {
   const rubiksEntity = engine.scene.createEntity()
   rubiksEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 0 }))
   rubiksEntity.addComponent(createMeshRenderer({
@@ -86,7 +81,6 @@ void assets.loadGLTF('rubiks-cube', '/assets/test-animation.glb').then((result) 
   )
 })
 
-// Demo Entity 4: Audio (plays on click or Space after asset load)
 const audioEntity = engine.scene.createEntity()
 void assets.loadAudio('demo-audio', '/assets/Amen%20in%20a%20nutshell.mp3').then(() => {
   audioEntity.addComponent(createAudio({
@@ -106,7 +100,6 @@ void assets.loadAudio('demo-audio', '/assets/Amen%20in%20a%20nutshell.mp3').then
   }))
 })
 
-// Demo Entity 3: Minimal UI Button
 const uiEntity = engine.scene.createEntity()
 uiEntity.addComponent(createUI({
   position: { x: 20, y: 20 },
@@ -139,7 +132,6 @@ uiEntity.addComponent(createScript({
   }
 }))
 
-// --- Systems ---
 const physicsSystem = new PhysicsSystem(engine.scene)
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
@@ -147,40 +139,23 @@ const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSy
 const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
-const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem)
 
 
-// --- Engine Frame Lifecycle Wiring ---
-//
-// requestAnimationFrame
-//     ↓
-// Engine.tick(deltaTime)
-//     ↓
-// Input.beginFrame()          (latches accumulators via engine.onPreUpdate)
-//     ↓
-// SceneManager active Scene.update(deltaTime)
-//     ↓
-// ScriptSystem.update(dt)     (scripts execute & query Input API)
-//     ↓
-// MeshRendererSystem.sync()   (ECS -> Three.js mesh sync)
-//     ↓
-// CameraSystem.sync()         (ECS -> Three.js camera sync)
-//     ↓
-// Renderer.render()           (draw call: editor camera in editor mode, activeCamera at runtime)
-//     ↓
-// Input.endFrame()            (resets transient frame deltas & triggers)
-//
 engine.onPreUpdate = () => {
   input.beginFrame()
 }
 
 engine.onPostUpdate = (deltaTime: number) => {
-  physicsSystem.update(deltaTime)
-  scriptSystem.update(deltaTime)
+  if (editor.isPlaying()) {
+    physicsSystem.update(deltaTime)
+    scriptSystem.update(deltaTime)
+    audioSystem.update(deltaTime)
+    uiSystem.update(deltaTime)
+  }
+  // Rendering sync stays active in edit mode so animated entities remain visible.
   animationSystem.update(deltaTime)
-  audioSystem.update(deltaTime)
   meshRendererSystem.sync()
-  uiSystem.update(deltaTime)
   editor.update()
 
   const activeCamera = cameraSystem.sync()

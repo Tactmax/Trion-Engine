@@ -11,10 +11,13 @@ export class EditorGrid {
 
   constructor(renderer: Renderer) {
     this.renderer = renderer
-    // Standard 20x20 grid with subtle dark theme styling
     this.grid = new THREE.GridHelper(20, 20, 0x555555, 0x2e353b)
     this.grid.position.y = 0
     this.renderer.add(this.grid)
+  }
+
+  setVisible(visible: boolean): void {
+    this.grid.visible = visible
   }
 
   dispose(): void {

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Scene } from '../engine/core/Scene.ts'
 import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.ts'
+import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
 import type { SelectionState } from './SelectionState.ts'
 
 export interface EntityPickerOptions {
@@ -8,6 +9,7 @@ export interface EntityPickerOptions {
   camera: THREE.Camera
   getScene: () => Scene
   meshRendererSystem: MeshRendererSystem
+  animationSystem?: AnimationSystem
   selectionState: SelectionState
   isGizmoInteracting?: () => boolean
 }
@@ -22,6 +24,7 @@ export class EntityPicker {
   private readonly camera: THREE.Camera
   private readonly getScene: () => Scene
   private readonly meshRendererSystem: MeshRendererSystem
+  private readonly animationSystem?: AnimationSystem
   private readonly selectionState: SelectionState
   private readonly isGizmoInteracting?: () => boolean
 
@@ -32,6 +35,9 @@ export class EntityPicker {
   private pointerDownTime = 0
   private isPointerDown = false
 
+  private gizmoActiveOnDown = false
+  private enabled = true
+
   private readonly onPointerDown: (e: PointerEvent) => void
   private readonly onPointerUp: (e: PointerEvent) => void
 
@@ -40,34 +46,34 @@ export class EntityPicker {
     this.camera = options.camera
     this.getScene = options.getScene
     this.meshRendererSystem = options.meshRendererSystem
+    this.animationSystem = options.animationSystem
     this.selectionState = options.selectionState
     this.isGizmoInteracting = options.isGizmoInteracting
 
     this.onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 || e.altKey) return
+      if (!this.enabled || e.button !== 0 || e.altKey) return
+      this.gizmoActiveOnDown = Boolean(this.isGizmoInteracting?.())
       this.isPointerDown = true
       this.pointerDownPos = { x: e.clientX, y: e.clientY }
       this.pointerDownTime = performance.now()
     }
 
     this.onPointerUp = (e: PointerEvent) => {
-      if (!this.isPointerDown || e.button !== 0 || e.altKey) {
+      if (!this.enabled || !this.isPointerDown || e.button !== 0 || e.altKey) {
         this.isPointerDown = false
         return
       }
       this.isPointerDown = false
 
-      // Ignore if it was a drag (e.g. moved > 4 pixels or held too long)
+      if (this.gizmoActiveOnDown || this.isGizmoInteracting?.()) {
+        return
+      }
+
       const dx = e.clientX - this.pointerDownPos.x
       const dy = e.clientY - this.pointerDownPos.y
       const dist = Math.hypot(dx, dy)
       const elapsed = performance.now() - this.pointerDownTime
       if (dist > 4 || elapsed > 500) {
-        return
-      }
-
-      // Check if gizmo is currently being hovered or dragged
-      if (this.isGizmoInteracting?.()) {
         return
       }
 
@@ -87,13 +93,18 @@ export class EntityPicker {
 
     this.raycaster.setFromCamera(this.pointerCoords, this.camera)
 
-    // Build editor-owned candidate list and reverse lookup mapping
     const scene = this.getScene()
     const entities = scene.getAllEntities()
     const candidateMeshes: THREE.Object3D[] = []
     const meshToEntityMap = new Map<THREE.Object3D, number>()
 
     for (const entity of entities) {
+      const target = this.animationSystem?.getTarget(entity.id)
+      if (target && target.parent) {
+        candidateMeshes.push(target)
+        meshToEntityMap.set(target, entity.id)
+        continue
+      }
       const mesh = this.meshRendererSystem.getMesh(entity.id)
       if (mesh) {
         candidateMeshes.push(mesh)
@@ -106,7 +117,6 @@ export class EntityPicker {
       return
     }
 
-    // Raycast only against selectable scene meshes (recursive for mesh children)
     const intersects = this.raycaster.intersectObjects(candidateMeshes, true)
 
     if (intersects.length > 0) {
@@ -127,8 +137,15 @@ export class EntityPicker {
         this.selectionState.select(null)
       }
     } else {
-      // Clicking empty viewport clears selection
       this.selectionState.select(null)
+    }
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled
+    if (!enabled) {
+      this.isPointerDown = false
+      this.gizmoActiveOnDown = false
     }
   }
 

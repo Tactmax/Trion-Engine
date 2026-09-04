@@ -29,7 +29,7 @@ SceneManager.getActiveScene().update(deltaTime)
 onPostUpdate(deltaTime)
 ```
 
-The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for `ScriptSystem.update()`, animation updates, mesh synchronization, camera synchronization, rendering and `Input.endFrame()`.
+The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for gameplay updates gated to Play Mode (`PhysicsSystem`, `ScriptSystem`, `AudioSystem`, `UISystem`), always-on rendering sync (`AnimationSystem`, `MeshRendererSystem`), editor updates, camera synchronization, rendering and `Input.endFrame()`. The viewport renders from the editor camera in edit mode and the runtime camera in Play Mode.
 
 This preserves a single frame loop while allowing a host application to choose system ordering.
 
@@ -62,7 +62,7 @@ Systems query the Scene rather than owning entities. This prevents parallel owne
 
 `MeshRendererSystem` resolves `MeshRendererComponent` IDs through `AssetManager`, creates and caches a Three.js mesh per entity, synchronizes `Transform` and shadow flags, and removes stale meshes from `Renderer`. For animated entities, it intentionally skips direct scene placement because `AnimationSystem` owns the runtime target object and transform synchronization.
 
-`AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data.
+`AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data. `getTarget(entityId)` exposes the target so editor gizmos, picking and highlights resolve animated entities to the object that carries their world transform.
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
 
@@ -128,6 +128,27 @@ Renderer (private THREE.Scene, WebGLRenderer)
 ```
 
 `Renderer` owns the Three.js scene graph and WebGL renderer. `MeshRendererSystem` owns its Three.js mesh cache; it borrows geometry and material references. Components intentionally do not hold Three.js objects.
+
+## Editor architecture
+
+```text
+Scene (live ECS state)
+  |
+  +-- SelectionState (single source of truth)
+  |       |
+  |       +-- HierarchyPanel / InspectorPanel
+  |       +-- EntityPicker (raycast) / SelectionHighlight (BoxHelper)
+  |       +-- GizmoController (TransformControls -> TransformComponent)
+  |
+  +-- EditorHistory (undo/redo, editor-only)
+  +-- Play Mode snapshot (serialize + cloned components)
+```
+
+- `SelectionState` is the single source of truth for selection. Hierarchy clicks and viewport picks write to it; the gizmo, highlight and inspector subscribe to it.
+- `EditorHistory` records Transform edits (gizmo drags, inspector fields) and entity create/delete as commands. It is editor-only: recording and undo/redo are disabled in Play Mode. Undo/redo invoke `MeshRendererSystem.sync()` so the viewport updates in the same tick.
+- Animated entities are represented everywhere by their `AnimationSystem` target, never by the renderer mesh parented under it (which carries identity local transform). Picking, gizmos and highlights all resolve through the same rule.
+- Play Mode snapshots `Scene.serialize()` plus deep-cloned components (preserving Script callbacks, which serialization drops). Stop deserializes, restores the clones, re-syncs the renderer, and force-refreshes selection so the Inspector and gizmo rebind to the restored objects. Runtime changes are discarded and never reach history.
+- `EditorCamera` wraps `OrbitControls` (right-drag orbit with horizontal following the drag, middle-drag pan, wheel zoom, `Alt`+left orbit) plus hover-gated `WASD` movement. Camera and picking input suspend during gizmo drags and Play Mode. Gizmo modes switch with `J`/`K`/`L`.
 
 ## Asset ownership and disposal
 
@@ -205,6 +226,7 @@ The application must call `beginFrame` and `endFrame` in its Engine callback wir
 - Keep Three.js-specific code in `src/engine/graphics/`.
 - Keep DOM-specific UI behavior in `src/engine/systems/UISystem.ts`; keep UI components pure data in `src/engine/components/ui/`.
 - Preserve ownership: SceneManager owns the active Scene reference, Scene owns entities, AssetManager owns registered resources, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle.
+- Keep editor-only state (selection, history, gizmo targets, play snapshots) in `src/editor/`; never store Three.js objects or history in ECS components.
 - Use asset IDs in ECS rendering data rather than Three.js resource references.
 - Avoid global engine singletons, duplicate entity registries and premature query indexes.
 - Integrate additional framework work through Engine callbacks unless the Engine lifecycle is deliberately evolved as a separate architectural change.

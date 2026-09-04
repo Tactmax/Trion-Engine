@@ -30,6 +30,11 @@ export class AnimationSystem {
     this.renderer = renderer
   }
 
+  /** Return the animated entity's scene target, if one is active. */
+  getTarget(entityId: number): THREE.Object3D | undefined {
+    return this.mixers.get(entityId)?.target
+  }
+
   update(deltaTime: number): void {
     const activeEntityIds = new Set<number>()
     const entities = this.scene.getEntitiesWithComponent('animation')

@@ -2,6 +2,20 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [Unreleased]
+
+### Editor
+
+- Added undo/redo history (`EditorHistory`) for Transform edits and entity create/delete, with `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` shortcuts. History is editor-only and disabled in Play Mode; undo/redo re-sync the viewport in the same tick.
+- Added Play Mode (`F5` / `F8`): snapshots scene state on play, runs physics/scripts/audio/UI against the runtime camera, and restores the exact pre-play state on stop while discarding runtime changes.
+- Added Move/Rotate/Scale gizmos (`J`/`K`/`L`) with hover highlighting, click-to-select picking and a selection highlight, all driven by a shared selection state.
+- Animated entities are gizmoed, picked and highlighted via their `AnimationSystem` target (`AnimationSystem.getTarget()`), keeping the renderer mesh anchored underneath it.
+- Added WASD editor camera movement and horizontal-drag-follows orbit direction.
+
+### Demo scene
+
+- The bundled demo now loads the Rubik's cube from `/assets/rubiks-cube.glb` with its animation clip and WASD/mouse script.
+
 ## [1.0.0] - 2026-09-01
 
 ### Editor foundation

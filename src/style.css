@@ -178,6 +178,34 @@ canvas {
   border-color: #3e70a0;
 }
 
+.trion-editor-button.is-play {
+  background: #2e7d32;
+  border-color: #1b5e20;
+  color: #fff;
+}
+
+.trion-editor-button.is-play:hover:not(:disabled) {
+  background: #388e3c;
+  border-color: #2e7d32;
+}
+
+.trion-editor-button.is-stop {
+  background: #c62828;
+  border-color: #b71c1c;
+  color: #fff;
+}
+
+.trion-editor-button.is-stop:hover:not(:disabled) {
+  background: #d32f2f;
+  border-color: #c62828;
+}
+
+.trion-editor.is-playing .trion-editor-titlebar-meta {
+  color: #81c784;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
 .trion-editor button:hover:not(:disabled) {
   background: #454545;
   border-color: #5a5a5a;

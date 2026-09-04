@@ -16,6 +16,7 @@ This roadmap distinguishes implemented work from planned future directions. It i
 - RigidBody, BoxCollider and SphereCollider components.
 - PhysicsSystem and RapierPhysicsBackend for backend-agnostic simulation.
 - UI, UIButton and UIText components with DOM-backed UISystem.
+- Browser editor: hierarchy, picking, selection highlight, Transform gizmos and inspector, undo/redo history, Play Mode with snapshot restore, WASD camera.
 
 ## In progress
 
@@ -26,7 +27,7 @@ This roadmap distinguishes implemented work from planned future directions. It i
 
 Potential next steps, subject to design and prioritization:
 
-- Editor tooling and scene authoring workflows.
+- Extended editor tooling: asset browsing, prefab editing and scene save/load workflows.
 - Networking or multiplayer-oriented runtime capabilities.
 - Additional rendering backends beyond Three.js/WebGL.
 - Additional physics backends such as PhysX, Bullet.js, Jolt.

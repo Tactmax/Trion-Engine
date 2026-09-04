@@ -1,16 +1,25 @@
 import type { Entity, TransformComponent, Vec3 } from '../engine/index.ts'
+import { transformsEqual, type TransformData } from './EditorHistory.ts'
+
+export interface InspectorPanelOptions {
+  onTransformCommit?: (entityId: number, before: TransformData, after: TransformData) => void
+}
 
 /** Inspector limited to the first editable component: Transform. */
 export class InspectorPanel {
   readonly element: HTMLElement
+  private readonly options: InspectorPanelOptions
   private readonly currentInputs = new Map<string, HTMLInputElement>()
+  private currentEntity: Entity | null = null
 
-  constructor() {
+  constructor(options: InspectorPanelOptions = {}) {
+    this.options = options
     this.element = document.createElement('aside')
     this.element.className = 'trion-editor-panel trion-editor-inspector'
   }
 
   render(entity: Entity | null): void {
+    this.currentEntity = entity
     this.currentInputs.clear()
     this.element.replaceChildren()
     const header = document.createElement('div')
@@ -99,10 +108,46 @@ export class InspectorPanel {
       input.inputMode = 'decimal'
       input.setAttribute('aria-label', `${label} ${axis.toUpperCase()}`)
       input.value = String(Number(Number(vector[axis]).toFixed(3)))
+
+      let fieldStartTransform: TransformData | null = null
+      input.addEventListener('focus', () => {
+        if (this.currentEntity) {
+          const t = this.currentEntity.getComponent<TransformComponent>('transform')
+          if (t) {
+            fieldStartTransform = {
+              position: { ...t.position },
+              rotation: { ...t.rotation },
+              scale: { ...t.scale },
+            }
+          }
+        }
+      })
+
       input.addEventListener('input', () => {
         const value = input.valueAsNumber
         if (Number.isFinite(value)) vector[axis] = value
       })
+
+      const commitChange = () => {
+        if (this.currentEntity && fieldStartTransform) {
+          const t = this.currentEntity.getComponent<TransformComponent>('transform')
+          if (t) {
+            const current: TransformData = {
+              position: { ...t.position },
+              rotation: { ...t.rotation },
+              scale: { ...t.scale },
+            }
+            if (!transformsEqual(fieldStartTransform, current)) {
+              this.options.onTransformCommit?.(this.currentEntity.id, fieldStartTransform, current)
+              fieldStartTransform = { ...current }
+            }
+          }
+        }
+      }
+
+      input.addEventListener('change', commitChange)
+      input.addEventListener('blur', commitChange)
+
       this.currentInputs.set(`${prefix}.${axis}`, input)
       field.appendChild(input)
       group.appendChild(field)
