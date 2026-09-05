@@ -2,7 +2,7 @@
 
 All notable changes are documented here as implementation milestones.
 
-## [Unreleased]
+## [1.0.2] - 2026-09-04
 
 ### Editor
 
