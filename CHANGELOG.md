@@ -2,6 +2,25 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [1.0.3] - 2026-09-06
+
+### Editor Asset Browser
+
+- Added a toggleable Asset Browser panel discovering `public/assets` (models, textures, data) with folder navigation, selection and Inspector details.
+- Model assets instantiate into the scene via double-click, drag into the viewport, or an Inspector action, reusing `AssetManager` and the existing ECS/renderer path as one undoable operation.
+
+### Editor prefabs
+
+- Added an editor-side prefab store with save-as-prefab from the Inspector (name + overwrite confirmation dialogs), prefab instantiation, and isolated prefab editing that reuses the existing viewport, hierarchy, inspector, gizmo and history before restoring the untouched scene.
+
+### Editor scenes
+
+- Added a Save Scene menu (New, Save, Save As, `Ctrl+S` / `Ctrl+Shift+S`) driving the existing scene serializer, with a scene store surfaced in the Asset Browser, dirty tracking, Save/Don't Save/Cancel prompts on unsaved switches, per-scene history, and saving disabled in Play Mode.
+
+### Editor fixes
+
+- Reverted horizontal orbit to the default `OrbitControls` direction.
+
 ## [1.0.2] - 2026-09-04
 
 ### Editor

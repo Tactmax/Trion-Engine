@@ -8,7 +8,7 @@ Trion is under active development. The current runtime provides an ECS core, a T
 
 Current runtime: Web
 
-Editor: Browser-based editor (hierarchy, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera)
+Editor: Browser-based editor (hierarchy, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera, asset browser, prefab workflow, scene save/load)
 
 Rendering backend: Three.js / WebGL
 
@@ -30,7 +30,7 @@ Rendering backend: Three.js / WebGL
 - Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
-- Browser editor with hierarchy, entity selection and picking, Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, and a WASD editor camera over the existing renderer viewport
+- Browser editor with hierarchy, entity selection and picking, Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, a WASD editor camera over the existing renderer viewport, an asset browser, a prefab create/instantiate/edit workflow, and scene save/save-as/open/new with dirty tracking
 
 ## Architecture
 
@@ -238,7 +238,10 @@ The browser editor (`src/editor/`, wired in `src/main.ts`) edits the live `Scene
 - Animated entities are gizmoed, picked and highlighted via their `AnimationSystem` target (`AnimationSystem.getTarget()`), which carries the world transform; the renderer mesh underneath it is never driven directly.
 - Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`, 50 entries) covers Transform edits and entity create/delete. History is editor-only and disabled in Play Mode; undo/redo push state to the viewport in the same tick.
 - Play Mode (`F5` / `▶ Play`, `F8` / `⏹ Stop`) snapshots the scene, runs physics/scripts/audio/UI against the runtime camera, then restores the exact pre-play state on stop and discards runtime changes.
-- Editor camera: right-drag orbits (horizontal follows the drag), middle-drag pans, wheel zooms, `WASD` moves while hovering the viewport, `Alt`+left-drag orbits. Camera input suspends during gizmo drags and Play Mode.
+- Editor camera: right-drag orbits, middle-drag pans, wheel zooms, `WASD` moves while hovering the viewport, `Alt`+left-drag orbits. Camera input suspends during gizmo drags and Play Mode.
+- Asset Browser (toggleable `Assets` panel) discovers `public/assets` plus stored prefabs and scenes: models instantiate into the scene via double-click or drag into the viewport; prefab and scene entries work the same way through their own flows.
+- Prefab workflow: save a selected entity as a prefab from the Inspector, instantiate prefabs from the Asset Browser, and edit prefabs in an isolated session (same viewport/hierarchy/inspector/gizmo tooling) with Save/Cancel returning to the untouched scene.
+- Scene File workflow (`Save Scene` menu, `Ctrl+S` / `Ctrl+Shift+S`): save, save-as, open and new scene through the existing serializer, with dirty tracking, a Save/Don't Save/Cancel prompt on unsaved switches, and history that resets per scene. Saving is disabled in Play Mode so runtime state never leaks into scene assets.
 
 ## Build and run
 
@@ -267,6 +270,7 @@ src/
     physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
     systems/     Runtime systems (Script, Animation, UI)
   editor/         Browser editor UI kept separate from the runtime engine
+                  (panels, asset browser, prefab/scene stores, dialogs, history)
   main.ts        Browser demo and engine wiring
 ```
 
@@ -280,7 +284,9 @@ src/
 ## Current limitations
 
 - No networking or WebGPU backend.
-- The editor intentionally excludes asset browsing, prefab editing and scene save/load workflows.
+- Prefabs are single-entity snapshots with no override/reconciliation system yet.
+- Prefab and scene assets persist in the browser's local storage rather than project files.
+- Scene instances referencing unloaded GLTF asset IDs render only once the source model is loaded.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.

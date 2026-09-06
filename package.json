@@ -2,7 +2,7 @@
   "name": "trion-engine",
   "description": "TypeScript ECS-based browser engine built on Three.js with backend-agnostic Rapier physics",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite",

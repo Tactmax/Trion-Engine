@@ -33,12 +33,6 @@ export class EditorCamera {
     this.controls.dampingFactor = 0.08
     this.controls.target.set(0, 1, 0)
 
-    // Invert only horizontal mouse-drag/orbit direction
-    const origRotateLeft = (this.controls as any)._rotateLeft.bind(this.controls)
-    ;(this.controls as any)._rotateLeft = (angle: number) => {
-      origRotateLeft(-angle)
-    }
-
     this.controls.mouseButtons = {
       LEFT: null as any,
       MIDDLE: THREE.MOUSE.PAN,
@@ -106,6 +100,11 @@ export class EditorCamera {
     if (dragging) {
       this.keysHeld.clear()
     }
+  }
+
+  /** Current orbit focus point in world space. Used for sensible asset placement. */
+  getTarget(): THREE.Vector3 {
+    return this.controls.target.clone()
   }
 
   update(): void {

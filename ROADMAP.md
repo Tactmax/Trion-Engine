@@ -17,6 +17,9 @@ This roadmap distinguishes implemented work from planned future directions. It i
 - PhysicsSystem and RapierPhysicsBackend for backend-agnostic simulation.
 - UI, UIButton and UIText components with DOM-backed UISystem.
 - Browser editor: hierarchy, picking, selection highlight, Transform gizmos and inspector, undo/redo history, Play Mode with snapshot restore, WASD camera.
+- Editor Asset Browser: discovery over `public/assets` with model instantiate via double-click/drag, plus virtual prefab and scene entries.
+- Editor prefab workflow: save-as-prefab, instantiate, and isolated prefab editing reusing the existing panels, gizmo and history.
+- Editor scene workflow: save, save-as, open and new scene through the existing serializer, with dirty tracking, unsaved-changes prompts and per-scene history.
 
 ## In progress
 
@@ -27,7 +30,7 @@ This roadmap distinguishes implemented work from planned future directions. It i
 
 Potential next steps, subject to design and prioritization:
 
-- Extended editor tooling: asset browsing, prefab editing and scene save/load workflows.
+- Prefab instance overrides/reconciliation and file-backed prefab/scene persistence.
 - Networking or multiplayer-oriented runtime capabilities.
 - Additional rendering backends beyond Three.js/WebGL.
 - Additional physics backends such as PhysX, Bullet.js, Jolt.

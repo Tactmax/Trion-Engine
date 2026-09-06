@@ -183,6 +183,14 @@ export class AssetManager {
     return this.animationRoots.has(id)
   }
 
+  getGLTFAsset(id: string): GLTFAssetResult | undefined {
+    return this.gltfAssets.get(id)
+  }
+
+  hasGLTFAsset(id: string): boolean {
+    return this.gltfAssets.has(id)
+  }
+
   removeAnimationRoot(id: string): void {
     this.animationRoots.delete(id)
   }

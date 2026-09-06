@@ -139,7 +139,7 @@ const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSy
 const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
-const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets)
 
 
 engine.onPreUpdate = () => {

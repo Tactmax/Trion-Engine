@@ -142,13 +142,20 @@ Scene (live ECS state)
   |
   +-- EditorHistory (undo/redo, editor-only)
   +-- Play Mode snapshot (serialize + cloned components)
+  +-- Prefab edit snapshot (serialize + cloned components)
+  +-- AssetBrowser (descriptors over public/assets + prefab/scene stores)
+  +-- PrefabStore / SceneStore (editor-side asset persistence)
+  +-- Scene document state (name, dirty flag, per-scene history)
 ```
 
 - `SelectionState` is the single source of truth for selection. Hierarchy clicks and viewport picks write to it; the gizmo, highlight and inspector subscribe to it.
 - `EditorHistory` records Transform edits (gizmo drags, inspector fields) and entity create/delete as commands. It is editor-only: recording and undo/redo are disabled in Play Mode. Undo/redo invoke `MeshRendererSystem.sync()` so the viewport updates in the same tick.
 - Animated entities are represented everywhere by their `AnimationSystem` target, never by the renderer mesh parented under it (which carries identity local transform). Picking, gizmos and highlights all resolve through the same rule.
 - Play Mode snapshots `Scene.serialize()` plus deep-cloned components (preserving Script callbacks, which serialization drops). Stop deserializes, restores the clones, re-syncs the renderer, and force-refreshes selection so the Inspector and gizmo rebind to the restored objects. Runtime changes are discarded and never reach history.
-- `EditorCamera` wraps `OrbitControls` (right-drag orbit with horizontal following the drag, middle-drag pan, wheel zoom, `Alt`+left orbit) plus hover-gated `WASD` movement. Camera and picking input suspend during gizmo drags and Play Mode. Gizmo modes switch with `J`/`K`/`L`.
+- `EditorCamera` wraps `OrbitControls` (right-drag orbit, middle-drag pan, wheel zoom, `Alt`+left orbit) plus hover-gated `WASD` movement. Camera and picking input suspend during gizmo drags and Play Mode. Gizmo modes switch with `J`/`K`/`L`.
+- `AssetBrowser` lists file descriptors, never entities: `public/assets` contents (via a build-time manifest) merged with virtual `Prefabs/` and `Scenes/` entries from the editor-side stores. Instantiation always goes through `AssetManager`/`Scene.instantiate` into real ECS entities.
+- `PrefabStore` persists single-entity component snapshots captured with `serializeEntities` and rebuilds them with `restoreComponent` + `createPrefab`. Prefab editing snapshots the scene like Play Mode, loads the prefab entity into the same `Scene` (so all panels, gizmo and systems keep working), then restores the untouched scene on save/cancel.
+- Scene documents carry a name, a dirty flag and their own history: save/save-as serialize through `Scene.serialize` into `SceneStore`, open/new replace scene state via `Scene.deserialize` with history cleared, and dirty switches prompt Save/Don't Save/Cancel. Save is disabled in Play Mode.
 
 ## Asset ownership and disposal
 
