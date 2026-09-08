@@ -34,20 +34,16 @@ export class ScriptSystem {
 
       activeEntityIds.add(entity.id)
 
-      // 1. OnStart phase (executes exactly once)
       if (!script.started) {
         script.started = true
         script.onStart?.(entity)
       }
 
-      // Track script instance for destruction detection
       this.trackedScripts.set(entity.id, { entity, script })
 
-      // 2. OnUpdate phase
       script.onUpdate?.(deltaTime, entity)
     }
 
-    // 3. OnDestroy phase for entities destroyed or scripts removed
     for (const [entityId, tracked] of this.trackedScripts.entries()) {
       if (!activeEntityIds.has(entityId)) {
         tracked.script.onDestroy?.(tracked.entity)

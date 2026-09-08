@@ -44,6 +44,7 @@ This preserves a single frame loop while allowing a host application to choose s
 Components are plain ECS data with an optional `update(deltaTime)` method. Built-in components are:
 
 - `transform`: position, rotation and scale.
+- `hierarchy`: optional parent entity link (absent = hierarchy root).
 - `camera`: projection settings.
 - `meshRenderer`: geometry/material IDs plus shadow flags.
 - `script`: lifecycle callback references and start state.
@@ -60,9 +61,9 @@ Systems query the Scene rather than owning entities. This prevents parallel owne
 
 `ScriptSystem` runs `onStart` once, then `onUpdate` each update for entities with a `ScriptComponent`. It tracks script instances to invoke `onDestroy` when a tracked script disappears. Call `ScriptSystem.clear()` when the host needs explicit cleanup for all tracked scripts.
 
-`MeshRendererSystem` resolves `MeshRendererComponent` IDs through `AssetManager`, creates and caches a Three.js mesh per entity, synchronizes `Transform` and shadow flags, and removes stale meshes from `Renderer`. For animated entities, it intentionally skips direct scene placement because `AnimationSystem` owns the runtime target object and transform synchronization.
+`MeshRendererSystem` resolves `MeshRendererComponent` IDs through `AssetManager`, creates and caches a Three.js mesh per entity, synchronizes the world-space transform (ECS locals composed root-first through `hierarchy` links; the renderer scene stays flat) and shadow flags, and removes stale meshes from `Renderer`. For animated entities, it intentionally skips direct scene placement because `AnimationSystem` owns the runtime target object and transform synchronization.
 
-`AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data. `getTarget(entityId)` exposes the target so editor gizmos, picking and highlights resolve animated entities to the object that carries their world transform.
+`AnimationSystem` resolves the GLTF animation root from `AssetManager`, clones it into a runtime target, creates an `AnimationMixer`, and updates the active clip each frame. It preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry includes skinning data. `getTarget(entityId)` exposes the target so editor gizmos, picking and highlights resolve animated entities to the object that carries their world transform. Transform sync writes the composed hierarchy world transform; editor gizmo edits convert back to the local ECS transform.
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
 
@@ -149,7 +150,8 @@ Scene (live ECS state)
 ```
 
 - `SelectionState` is the single source of truth for selection. Hierarchy clicks and viewport picks write to it; the gizmo, highlight and inspector subscribe to it.
-- `EditorHistory` records Transform edits (gizmo drags, inspector fields) and entity create/delete as commands. It is editor-only: recording and undo/redo are disabled in Play Mode. Undo/redo invoke `MeshRendererSystem.sync()` so the viewport updates in the same tick.
+- Entity hierarchy lives in the optional `HierarchyComponent` parent link. The Hierarchy panel renders it as a nested tree with inline rename (double-click/`F2`, `Enter` to confirm, `Escape` to cancel) and drag-and-drop reparenting. Reparenting preserves world space by recomputing the local transform, rejects self/descendant parenting, and records one undoable operation. Rename, duplicate and delete are grouped in the Modify Selected menu.
+- `EditorHistory` records Transform edits (gizmo drags, inspector fields), renames, reparents, duplication and entity create/delete as commands. It is editor-only: recording and undo/redo are disabled in Play Mode. Undo/redo invoke `MeshRendererSystem.sync()` so the viewport updates in the same tick.
 - Animated entities are represented everywhere by their `AnimationSystem` target, never by the renderer mesh parented under it (which carries identity local transform). Picking, gizmos and highlights all resolve through the same rule.
 - Play Mode snapshots `Scene.serialize()` plus deep-cloned components (preserving Script callbacks, which serialization drops). Stop deserializes, restores the clones, re-syncs the renderer, and force-refreshes selection so the Inspector and gizmo rebind to the restored objects. Runtime changes are discarded and never reach history.
 - `EditorCamera` wraps `OrbitControls` (right-drag orbit, middle-drag pan, wheel zoom, `Alt`+left orbit) plus hover-gated `WASD` movement. Camera and picking input suspend during gizmo drags and Play Mode. Gizmo modes switch with `J`/`K`/`L`.

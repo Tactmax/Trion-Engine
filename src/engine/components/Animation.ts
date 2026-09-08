@@ -7,6 +7,8 @@ export interface AnimationComponent extends Component {
   activeClip?: string
   playing: boolean
   loop: boolean
+  /** Playback rate multiplier applied to mixer time. Defaults to 1. */
+  speed: number
 }
 
 export interface CreateAnimationOptions {
@@ -15,6 +17,7 @@ export interface CreateAnimationOptions {
   activeClip?: string
   playing?: boolean
   loop?: boolean
+  speed?: number
 }
 
 export function createAnimation(options: CreateAnimationOptions = {}): AnimationComponent {
@@ -25,5 +28,6 @@ export function createAnimation(options: CreateAnimationOptions = {}): Animation
     activeClip: options.activeClip,
     playing: options.playing ?? false,
     loop: options.loop ?? true,
+    speed: options.speed ?? 1,
   }
 }

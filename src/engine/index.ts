@@ -3,6 +3,32 @@ export type { EntityMetadata, JsonValue, PrefabOverrides, SceneData, SerializedE
 export type { Component } from './components/Component.ts'
 export { createTransform } from './components/Transform.ts'
 export type { TransformComponent, Vec3 } from './components/Transform.ts'
+export {
+  createHierarchy,
+  readHierarchyParent,
+  getParentId,
+  getChildren,
+  isDescendantOf,
+  canReparent,
+  applyParentLink,
+  getWorldMatrix,
+  getWorldTransform,
+  computePreservedLocal,
+  worldToLocal,
+  decomposeMatrix,
+} from './components/Hierarchy.ts'
+export type { HierarchyComponent, ReparentCheck, TransformSnapshot } from './components/Hierarchy.ts'
+export { createDirectionalLight, createPointLight, createSpotLight, createLightComponent, isLightComponentType } from './components/Light.ts'
+export type {
+  DirectionalLightComponent,
+  LightComponent,
+  LightComponentType,
+  PointLightComponent,
+  SpotLightComponent,
+  CreateDirectionalLightOptions,
+  CreatePointLightOptions,
+  CreateSpotLightOptions,
+} from './components/Light.ts'
 export { createCamera } from './components/Camera.ts'
 export type { CameraComponent, ProjectionMode, CreateCameraOptions } from './components/Camera.ts'
 export { createMeshRenderer } from './components/MeshRenderer.ts'
@@ -25,8 +51,8 @@ export { createUIText } from './components/ui/UIText.ts'
 export type { UITextComponent, CreateUITextOptions } from './components/ui/UIText.ts'
 export { createUIButton } from './components/ui/UIButton.ts'
 export type { UIButtonComponent, CreateUIButtonOptions } from './components/ui/UIButton.ts'
-export { Renderer, AssetManager, MeshRendererSystem, CameraSystem } from './graphics/index.ts'
-export type { CreateStandardMaterialOptions, GLTFAssetResult, GLTFMeshAsset } from './graphics/index.ts'
+export { Renderer, AssetManager, MeshRendererSystem, CameraSystem, LightSystem } from './graphics/index.ts'
+export type { CreateStandardMaterialOptions, GLTFAssetResult, GLTFMeshAsset, MaterialDefinition, MaterialProps } from './graphics/index.ts'
 export { ScriptSystem, AnimationSystem, AudioSystem, UISystem } from './systems/index.ts'
 export { Input } from './input/index.ts'
 export type { Vec2 } from './input/index.ts'

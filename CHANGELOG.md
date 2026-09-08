@@ -2,6 +2,28 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [1.0.4] - 2026-09-08
+
+### Editor hierarchy: rename and reparenting
+
+- Added a `hierarchy` component holding an optional parent entity link (absent = hierarchy root), with world transforms composed root-first from ECS local transforms.
+- The Hierarchy panel renders the nested entity tree with inline rename (double-click or `F2`, `Enter` to confirm, `Escape` to cancel) and drag-and-drop reparenting including unparenting to the root.
+- Reparenting preserves world position, rotation and scale by recomputing the local transform, moves whole subtrees without new IDs, and rejects self/descendant parenting.
+- Rename and reparent are each one undoable operation, serialize through the existing scene format, and are disabled in Play Mode.
+- Mesh, animation, light and collider visuals sync composed world transforms; gizmo drags convert back to the local ECS transform.
+
+### Editor Modify Selected menu
+
+- Grouped Rename, Duplicate Selected and Delete Selected into a single Modify Selected dropdown menu with the existing shortcuts (`F2`, `Ctrl+D`).
+
+### Editor duplication
+
+- Added entity/subtree duplication (`Ctrl+D`) with fresh IDs, hierarchy remapping and independence from the original as one undoable operation.
+
+### Editor materials and lights
+
+- Added material editing (assign, create, shared property edits) and directional/point/spot light components with editor creation, inspection and viewport helpers.
+
 ## [1.0.3] - 2026-09-06
 
 ### Editor Asset Browser

@@ -5,11 +5,13 @@ import {
   AssetManager,
   MeshRendererSystem,
   CameraSystem,
+  LightSystem,
   ScriptSystem,
   AnimationSystem,
   AudioSystem,
   Input,
   PhysicsSystem,
+  RapierPhysicsBackend,
   createTransform,
   createMeshRenderer,
   createCamera,
@@ -49,6 +51,7 @@ cameraEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 2.5 }))
 cameraEntity.addComponent(createCamera())
 
 void assets.loadGLTF('rubiks-cube', '/assets/rubiks-cube.glb').then((result) => {
+  editor.noteGLTFAssetLoaded();
   const rubiksEntity = engine.scene.createEntity()
   rubiksEntity.addComponent(createTransform({ x: 0, y: 1.2, z: 0 }))
   rubiksEntity.addComponent(createMeshRenderer({
@@ -133,13 +136,23 @@ uiEntity.addComponent(createScript({
 }))
 
 const physicsSystem = new PhysicsSystem(engine.scene)
+// Initialize the Rapier backend asynchronously (loads WASM). Until it
+// resolves, PhysicsSystem.update() is a safe no-op, so the frame loop can
+// start immediately. Editor play/stop resets physics state via reset().
+const rapierBackend = new RapierPhysicsBackend()
+rapierBackend.initialize({ x: 0, y: -9.81, z: 0 }).then(() => {
+  physicsSystem.setBackend(rapierBackend)
+}).catch((error) => {
+  console.error('[Trion] Failed to initialize physics backend:', error)
+})
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
+const lightSystem = new LightSystem(engine.scene, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
 const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
-const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem)
 
 
 engine.onPreUpdate = () => {
@@ -156,6 +169,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   // Rendering sync stays active in edit mode so animated entities remain visible.
   animationSystem.update(deltaTime)
   meshRendererSystem.sync()
+  lightSystem.sync()
   editor.update()
 
   const activeCamera = cameraSystem.sync()

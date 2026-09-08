@@ -58,7 +58,6 @@ export class RapierPhysicsBackend implements PhysicsBackend {
 
 
   createRigidBody(desc: RigidBodyDesc): PhysicsBodyHandle {
-    // Build Rapier rigid-body descriptor
     let rapierDesc: RAPIER.RigidBodyDesc
     if (desc.type === 'fixed') {
       rapierDesc = RAPIER.RigidBodyDesc.fixed()
@@ -66,10 +65,8 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       rapierDesc = RAPIER.RigidBodyDesc.dynamic()
     }
 
-    // Apply initial transform
     rapierDesc.setTranslation(desc.position.x, desc.position.y, desc.position.z)
 
-    // Convert Euler XYZ → quaternion for Rapier
     const quat = eulerToQuat(desc.rotation)
     rapierDesc.setRotation(quat)
 
@@ -181,16 +178,13 @@ function eulerToQuat(e: PhysVec3): Quat {
  * Inverse of eulerToQuat — returns angles in the same convention.
  */
 function quatToEuler(q: Quat): PhysVec3 {
-  // Roll (X)
   const sinrCosp = 2 * (q.w * q.x + q.y * q.z)
   const cosrCosp = 1 - 2 * (q.x * q.x + q.y * q.y)
   const rx = Math.atan2(sinrCosp, cosrCosp)
 
-  // Pitch (Y)
   const sinp = 2 * (q.w * q.y - q.z * q.x)
   const ry = Math.abs(sinp) >= 1 ? Math.sign(sinp) * (Math.PI / 2) : Math.asin(sinp)
 
-  // Yaw (Z)
   const sinyCosp = 2 * (q.w * q.z + q.x * q.y)
   const cosyCosp = 1 - 2 * (q.y * q.y + q.z * q.z)
   const rz = Math.atan2(sinyCosp, cosyCosp)

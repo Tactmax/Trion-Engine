@@ -49,7 +49,6 @@ export async function loadGLTFAsset(url: string): Promise<LoadedGLTFAsset> {
   }
 }
 
-/** Recursively dispose geometries and materials in a Three.js scene. */
 function disposeScene(scene: THREE.Object3D): void {
   scene.traverse((child) => {
     if (child instanceof THREE.Mesh) {

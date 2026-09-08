@@ -42,7 +42,6 @@ export class CameraSystem {
    * Returns the active Three.js camera, or null if no camera entity exists.
    */
   sync(): THREE.Camera | null {
-    // Find the first entity with a camera component
     const entities = this.scene.getEntitiesWithComponent('camera')
     if (entities.length === 0) {
       return null
@@ -64,10 +63,6 @@ export class CameraSystem {
     return this.threeCamera
   }
 
-  /**
-   * Ensures the internal Three.js camera matches the requested projection mode.
-   * Recreates the camera if the mode changes or if it hasn't been created yet.
-   */
   private ensureCameraType(mode: 'perspective' | 'orthographic'): void {
     if (this.activeProjectionMode === mode && this.threeCamera) {
       return
@@ -86,7 +81,6 @@ export class CameraSystem {
 
     this.activeProjectionMode = mode
     
-    // Force projection update on next sync
     this.prevFov = 0
     this.prevSize = 0
     this.prevNear = 0

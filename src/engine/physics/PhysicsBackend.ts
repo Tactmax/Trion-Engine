@@ -5,9 +5,6 @@
  */
 export type PhysicsBodyHandle = number & { readonly __brand: 'PhysicsBodyHandle' }
 
-/**
- * Opaque handle to a physics collider inside the backend.
- */
 export type PhysicsColliderHandle = number & { readonly __brand: 'PhysicsColliderHandle' }
 
 /** Engine-native 3-component vector. Mirrors Vec3 but kept local so the
@@ -18,10 +15,8 @@ export interface PhysVec3 {
   z: number
 }
 
-/** Rigid body types supported by all backends. */
 export type RigidBodyType = 'dynamic' | 'fixed'
 
-/** Description passed to the backend when creating a rigid body. */
 export interface RigidBodyDesc {
   type: RigidBodyType
   position: PhysVec3
@@ -29,13 +24,10 @@ export interface RigidBodyDesc {
   rotation: PhysVec3
 }
 
-/** Description passed to the backend when attaching a box collider. */
 export interface BoxColliderDesc {
-  /** Half-extents along each axis. */
   halfExtents: PhysVec3
 }
 
-/** Description passed to the backend when attaching a sphere collider. */
 export interface SphereColliderDesc {
   radius: number
 }
@@ -58,13 +50,10 @@ export interface PhysicsBackend {
    */
   initialize(gravity: PhysVec3): Promise<void>
 
-  /** Advance the simulation by exactly `dt` seconds. */
   step(dt: number): void
 
-  /** Current world gravity. */
   getGravity(): PhysVec3
 
-  /** Replace world gravity. */
   setGravity(gravity: PhysVec3): void
 
 
@@ -93,6 +82,5 @@ export interface PhysicsBackend {
 
 
 
-  /** Release all backend resources. */
   dispose(): void
 }

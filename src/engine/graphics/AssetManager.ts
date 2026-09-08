@@ -154,6 +154,16 @@ export class AssetManager {
     return this.materials.has(id)
   }
 
+  /** List all registered material IDs (used for material pickers and Play Mode snapshots). */
+  listMaterialIds(): string[] {
+    return [...this.materials.keys()]
+  }
+
+  /** Iterate registered material entries (used for Play Mode material snapshots). */
+  listMaterials(): Array<[string, THREE.Material]> {
+    return [...this.materials.entries()]
+  }
+
 
   registerAnimation(id: string, clip: THREE.AnimationClip): void {
     this.animations.set(id, clip)
@@ -189,6 +199,20 @@ export class AssetManager {
 
   hasGLTFAsset(id: string): boolean {
     return this.gltfAssets.has(id)
+  }
+
+  /**
+   * Find the GLTF asset that owns a geometry ID (registered as
+   * `<assetId>/mesh/<index>` by loadGLTF). Used to resolve which animation
+   * clips are available for an entity's rendered mesh.
+   */
+  getGLTFAssetForGeometry(geometryId: string): GLTFAssetResult | undefined {
+    for (const asset of this.gltfAssets.values()) {
+      if (asset.meshes.some((mesh) => mesh.geometryId === geometryId)) {
+        return asset
+      }
+    }
+    return undefined
   }
 
   removeAnimationRoot(id: string): void {

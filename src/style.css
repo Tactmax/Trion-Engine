@@ -204,6 +204,51 @@ canvas {
   border-right: 1px solid var(--editor-border);
 }
 
+.trion-editor-panel,
+.trion-editor-asset-grid {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a4a transparent;
+}
+
+.trion-editor ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.trion-editor ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.trion-editor ::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border-radius: 4px;
+  background: #4a4a4a;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.trion-editor ::-webkit-scrollbar-thumb:hover {
+  background: #5f5f5f;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.trion-editor ::-webkit-scrollbar-thumb:active {
+  background: var(--editor-accent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.trion-editor ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.trion-editor ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .trion-editor-inspector {
   border-right: 0;
   border-left: 1px solid var(--editor-border);
@@ -237,7 +282,8 @@ canvas {
 }
 
 .trion-editor button,
-.trion-editor input {
+.trion-editor input,
+.trion-editor select {
   border: 1px solid #1c1c1c;
   border-radius: 2px;
   background: var(--editor-surface-raised);
@@ -351,6 +397,36 @@ canvas {
 .trion-editor-entity.is-selected {
   color: #fff;
   background: #28557d !important;
+}
+
+.trion-editor-entity-children {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 0 12px;
+  padding-left: 4px;
+  border-left: 1px solid #2e2e2e;
+  list-style: none;
+}
+
+.trion-editor-entity-item {
+  min-width: 0;
+}
+
+.trion-editor-entity.is-drop-target {
+  outline: 1px solid var(--editor-accent);
+  background: #2c4a63 !important;
+}
+
+.trion-editor-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  color: #fff;
+  background: #1e1e1e !important;
+  border: 1px solid var(--editor-accent) !important;
+  border-radius: 2px;
+  font-size: 12px;
+  text-align: left;
 }
 
 .trion-editor-viewport {
@@ -524,6 +600,38 @@ canvas {
   outline: 1px solid var(--editor-accent);
 }
 
+.trion-editor-component-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.trion-editor-component-remove {
+  display: flex;
+  margin-top: 6px;
+}
+
+.trion-editor-field {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 7px;
+  color: var(--editor-muted);
+  font-size: 11px;
+}
+
+.trion-editor-field input,
+.trion-editor-select {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  color: #ededed;
+}
+
+.trion-editor-field input {
+  text-align: right;
+}
+
 .trion-editor-empty {
   max-width: 180px;
   margin: 20px auto;
@@ -626,6 +734,15 @@ canvas {
 }
 
 .trion-editor-asset-item.is-scene.is-selected {
+  color: #fff;
+  background: #28557d !important;
+}
+
+.trion-editor-asset-item.is-material {
+  color: #e0aaff;
+}
+
+.trion-editor-asset-item.is-material.is-selected {
   color: #fff;
   background: #28557d !important;
 }

@@ -1,6 +1,6 @@
 import { assetPaths } from 'virtual:trion-asset-manifest'
 
-export type AssetKind = 'model' | 'texture' | 'data' | 'prefab' | 'scene'
+export type AssetKind = 'model' | 'texture' | 'data' | 'prefab' | 'scene' | 'material'
 
 export interface AssetFileInfo {
   relativePath: string
@@ -15,6 +15,7 @@ export interface AssetBrowserOptions {
   onInstantiateAsset: (asset: AssetFileInfo) => void
   getPrefabAssets?: () => AssetFileInfo[]
   getSceneAssets?: () => AssetFileInfo[]
+  getMaterialAssets?: () => AssetFileInfo[]
 }
 
 const SUPPORTED_EXTENSIONS: Record<string, AssetKind> = {
@@ -26,6 +27,7 @@ const SUPPORTED_EXTENSIONS: Record<string, AssetKind> = {
   webp: 'texture',
   json: 'data',
   scene: 'scene',
+  mat: 'material',
 }
 
 export const ASSET_DROP_MIME = 'application/x-trion-asset'
@@ -61,6 +63,8 @@ export const PREFAB_FOLDER = 'Prefabs'
 
 export const SCENES_FOLDER = 'Scenes'
 
+export const MATERIALS_FOLDER = 'Materials'
+
 export function prefabAssetForName(name: string): AssetFileInfo {
   return {
     relativePath: `${PREFAB_FOLDER}/${name}.prefab`,
@@ -95,11 +99,30 @@ export function sceneNameFromAsset(asset: AssetFileInfo): string | null {
   return file.toLowerCase().endsWith('.scene') ? file.slice(0, -'.scene'.length) : null
 }
 
+export function materialAssetForId(id: string): AssetFileInfo {
+  const suffix = id.startsWith('material/') ? id.slice('material/'.length) : id
+  const base = suffix.trim() || id
+  return {
+    relativePath: `${MATERIALS_FOLDER}/${base}.mat`,
+    fileName: `${base}.mat`,
+    extension: 'mat',
+    url: '',
+    kind: 'material',
+  }
+}
+
+export function materialIdFromAsset(asset: AssetFileInfo): string | null {
+  if (asset.kind !== 'material') return null
+  const match = /^Materials\/(.+)\.mat$/.exec(asset.relativePath)
+  return match ? `material/${match[1]}` : null
+}
+
 function iconForAsset(asset: AssetFileInfo): string {
   if (asset.kind === 'model') return '◈'
   if (asset.kind === 'texture') return '▦'
   if (asset.kind === 'prefab') return '⬢'
   if (asset.kind === 'scene') return '▤'
+  if (asset.kind === 'material') return '◐'
   return '≣'
 }
 
@@ -186,6 +209,7 @@ export class AssetBrowser {
       ...discoverAssets(),
       ...(this.options.getPrefabAssets?.() ?? []),
       ...(this.options.getSceneAssets?.() ?? []),
+      ...(this.options.getMaterialAssets?.() ?? []),
     ]
     merged.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
     return merged
@@ -292,6 +316,7 @@ export class AssetBrowser {
       button.className = 'trion-editor-asset-item'
       if (asset.kind === 'prefab') button.classList.add('is-prefab')
       if (asset.kind === 'scene') button.classList.add('is-scene')
+      if (asset.kind === 'material') button.classList.add('is-material')
       button.classList.toggle('is-selected', asset.relativePath === this.selectedPath)
       const icon = document.createElement('span')
       icon.className = 'trion-editor-asset-icon'
@@ -316,7 +341,7 @@ export class AssetBrowser {
         this.options.onSelectAsset(asset)
       })
       button.addEventListener('dblclick', () => {
-        if (this.disabled || (asset.kind !== 'model' && asset.kind !== 'prefab' && asset.kind !== 'scene')) return
+        if (this.disabled || (asset.kind !== 'model' && asset.kind !== 'prefab' && asset.kind !== 'scene' && asset.kind !== 'material')) return
         if (this.selectedPath !== asset.relativePath) {
           this.selectedPath = asset.relativePath
           this.render()
@@ -342,6 +367,8 @@ export class AssetBrowser {
         status.textContent = `${selected.fileName} — double-click or drag into viewport`
       } else if (selected.kind === 'scene' && !this.disabled) {
         status.textContent = `${selected.fileName} — double-click to open`
+      } else if (selected.kind === 'material' && !this.disabled) {
+        status.textContent = `${selected.fileName} — double-click to assign to the selected entity`
       } else {
         status.textContent = selected.fileName
       }

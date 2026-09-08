@@ -36,13 +36,14 @@ npm run build
 - Keep DOM-specific UI behavior in `src/engine/systems/UISystem.ts`; keep UI components pure data in `src/engine/components/ui/`.
 - Respect resource ownership: AssetManager owns registered geometries/materials, Renderer owns rendering infrastructure, PhysicsSystem owns physics world state, UISystem owns DOM lifecycle, and systems borrow resources.
 - Keep editor behavior editor-side in `src/editor/`: selection flows through `SelectionState`, history stays editor-only and disabled in Play Mode, and animated entities resolve to their `AnimationSystem` target for gizmos, picking and highlights.
+- Keep entity hierarchy in the `hierarchy` component (absent = hierarchy root); compose world transforms from ECS locals and keep the ECS Transform authoritative.
 - Prefer simple APIs and explicit control flow over new managers, registries or abstractions without a demonstrated need.
 - Do not mix unrelated cleanup or refactors into feature work.
 - Preserve public APIs unless a breaking change is explicitly discussed.
 
 ## Testing
 
-At minimum, run `npm run build`. Automated tests are intentionally postponed; a testing framework may be added later. For now, verify changes with a manual runtime smoke check in the browser, especially for lifecycle, asset ownership, rendering-boundary, physics or UI changes. Document any browser-only validation that cannot be automated locally.
+At minimum, run `npm run build`. The `scripts/` headless checks (`node --experimental-strip-types scripts/verify-*.mjs`) are local developer tooling and are not shipped with the repository (`/scripts/` is gitignored), so they may be absent from a fresh clone. Verify browser-only behavior (viewport, gizmos, panels, Play Mode) with a manual runtime smoke check in the browser, especially for lifecycle, asset ownership, rendering-boundary, physics or UI changes. Document any browser-only validation that cannot be automated locally.
 
 ## Pull requests
 

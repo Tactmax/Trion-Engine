@@ -23,9 +23,6 @@ export interface ScriptComponent extends Component {
   started: boolean
 }
 
-/**
- * Factory function to create a ScriptComponent.
- */
 export function createScript(callbacks: ScriptCallbacks): ScriptComponent {
   return {
     type: 'script',

@@ -25,3 +25,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Local verification scripts
+/scripts/

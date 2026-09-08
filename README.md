@@ -8,7 +8,7 @@ Trion is under active development. The current runtime provides an ECS core, a T
 
 Current runtime: Web
 
-Editor: Browser-based editor (hierarchy, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera, asset browser, prefab workflow, scene save/load)
+Editor: Browser-based editor (nested hierarchy with rename/reparenting, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera, asset browser, prefab workflow, scene save/load)
 
 Rendering backend: Three.js / WebGL
 
@@ -17,7 +17,7 @@ Rendering backend: Three.js / WebGL
 - Engine lifecycle driven by a single `requestAnimationFrame` loop
 - SceneManager ownership of the active Scene reference
 - Scene, Entity and Component ECS runtime
-- Transform, Camera, MeshRenderer, Script and Animation components
+- Transform, Hierarchy, Camera, MeshRenderer, Script and Animation components
 - Perspective and orthographic camera synchronization
 - Three.js-backed mesh rendering and explicit resource ownership
 - Keyboard, mouse, scroll and single-frame input states
@@ -30,7 +30,7 @@ Rendering backend: Three.js / WebGL
 - Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
-- Browser editor with hierarchy, entity selection and picking, Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, a WASD editor camera over the existing renderer viewport, an asset browser, a prefab create/instantiate/edit workflow, and scene save/save-as/open/new with dirty tracking
+- Browser editor with nested hierarchy, entity selection and picking, inline rename and drag-and-drop reparenting, a Modify Selected menu (rename/duplicate/delete), Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, a WASD editor camera over the existing renderer viewport, an asset browser, a prefab create/instantiate/edit workflow, and scene save/save-as/open/new with dirty tracking
 
 ## Architecture
 
@@ -233,15 +233,16 @@ const uiSystem = new UISystem(engine.scene)
 
 The browser editor (`src/editor/`, wired in `src/main.ts`) edits the live `Scene` through the public ECS API:
 
-- Hierarchy panel, viewport click-to-select picking, selection highlight box, and a Transform inspector.
+- Hierarchy panel (nested tree, viewport click-to-select picking, selection highlight box), inline entity rename (double-click or `F2`, `Enter` to confirm, `Escape` to cancel), drag-and-drop reparenting with world-transform preservation, a Modify Selected menu for rename/duplicate/delete, and a Transform inspector.
 - Move/Rotate/Scale gizmos (`J`/`K`/`L`) driven by Three.js `TransformControls`; the `TransformComponent` stays authoritative and gizmo drags are undoable.
 - Animated entities are gizmoed, picked and highlighted via their `AnimationSystem` target (`AnimationSystem.getTarget()`), which carries the world transform; the renderer mesh underneath it is never driven directly.
-- Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`, 50 entries) covers Transform edits and entity create/delete. History is editor-only and disabled in Play Mode; undo/redo push state to the viewport in the same tick.
+- Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`, 50 entries) covers Transform edits, renames, reparents, duplication and entity create/delete. History is editor-only and disabled in Play Mode; undo/redo push state to the viewport in the same tick.
 - Play Mode (`F5` / `▶ Play`, `F8` / `⏹ Stop`) snapshots the scene, runs physics/scripts/audio/UI against the runtime camera, then restores the exact pre-play state on stop and discards runtime changes.
 - Editor camera: right-drag orbits, middle-drag pans, wheel zooms, `WASD` moves while hovering the viewport, `Alt`+left-drag orbits. Camera input suspends during gizmo drags and Play Mode.
 - Asset Browser (toggleable `Assets` panel) discovers `public/assets` plus stored prefabs and scenes: models instantiate into the scene via double-click or drag into the viewport; prefab and scene entries work the same way through their own flows.
 - Prefab workflow: save a selected entity as a prefab from the Inspector, instantiate prefabs from the Asset Browser, and edit prefabs in an isolated session (same viewport/hierarchy/inspector/gizmo tooling) with Save/Cancel returning to the untouched scene.
 - Scene File workflow (`Save Scene` menu, `Ctrl+S` / `Ctrl+Shift+S`): save, save-as, open and new scene through the existing serializer, with dirty tracking, a Save/Don't Save/Cancel prompt on unsaved switches, and history that resets per scene. Saving is disabled in Play Mode so runtime state never leaks into scene assets.
+- Entity hierarchy uses the optional `hierarchy` component parent link; renderers compose world transforms from ECS locals while physics bodies and the runtime camera use local transforms.
 
 ## Build and run
 
@@ -290,6 +291,7 @@ src/
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.
+- Physics bodies and the runtime camera use local transforms and ignore hierarchy parenting.
 - Querying currently uses linear scans rather than indexes.
 
 ## Roadmap

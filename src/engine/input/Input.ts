@@ -14,24 +14,19 @@ export interface Vec2 {
 export class Input {
   private readonly target: HTMLElement | Window
 
-  // Held states
   private readonly keysHeld = new Set<string>()
   private readonly buttonsHeld = new Set<number>()
 
-  // Single-frame states (press/release)
   private readonly keysPressed = new Set<string>()
   private readonly keysReleased = new Set<string>()
   private readonly buttonsPressed = new Set<number>()
   private readonly buttonsReleased = new Set<number>()
 
-  // Mouse position
   private mousePos: Vec2 = { x: 0, y: 0 }
 
-  // Mouse movement deltas
   private accumMouseDelta: Vec2 = { x: 0, y: 0 }
   private frameMouseDelta: Vec2 = { x: 0, y: 0 }
 
-  // Wheel deltas
   private accumScrollDelta: Vec2 = { x: 0, y: 0 }
   private frameScrollDelta: Vec2 = { x: 0, y: 0 }
 

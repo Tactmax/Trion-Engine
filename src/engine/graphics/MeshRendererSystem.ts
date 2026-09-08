@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Scene } from '../core/Scene.ts'
 import type { TransformComponent } from '../components/Transform.ts'
+import { getWorldTransform } from '../components/Hierarchy.ts'
 import type { MeshRendererComponent } from '../components/MeshRenderer.ts'
 import type { AssetManager } from './AssetManager.ts'
 import type { Renderer } from './Renderer.ts'
@@ -80,8 +81,6 @@ export class MeshRendererSystem {
       const geo = this.assets.getGeometry(mr.geometryId)
       const mat = this.assets.getMaterial(mr.materialId)
 
-      // Skip silently if assets are not yet registered.
-      // The mesh will be created automatically on the next sync where both are present.
       if (!geo || !mat) continue
 
       const mesh = this.resolveOrRebuildMesh(entity.id, mr, geo, mat)
@@ -124,7 +123,9 @@ export class MeshRendererSystem {
   }
 
   /**
-   * Copy the entity's TransformComponent into the Three.js mesh.
+   * Copy the entity's world-space transform into the Three.js mesh.
+   * The renderer scene stays flat; hierarchy composition happens here from
+   * ECS local transforms so the ECS TransformComponent remains authoritative.
    * TransformComponent rotation is stored as Euler angles in radians (XYZ order).
    * No-op if the entity has no Transform — the mesh stays at the origin.
    */
@@ -133,9 +134,10 @@ export class MeshRendererSystem {
     const xform = entity?.getComponent<TransformComponent>('transform')
     if (!xform) return
 
-    mesh.position.set(xform.position.x, xform.position.y, xform.position.z)
-    mesh.rotation.set(xform.rotation.x, xform.rotation.y, xform.rotation.z)
-    mesh.scale.set(xform.scale.x, xform.scale.y, xform.scale.z)
+    const world = getWorldTransform(this.scene, entityId)
+    mesh.position.set(world.position.x, world.position.y, world.position.z)
+    mesh.rotation.set(world.rotation.x, world.rotation.y, world.rotation.z)
+    mesh.scale.set(world.scale.x, world.scale.y, world.scale.z)
   }
 
 

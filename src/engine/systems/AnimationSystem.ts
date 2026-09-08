@@ -6,6 +6,7 @@ import type { TransformComponent } from '../components/Transform.ts'
 import type { AssetManager } from '../graphics/AssetManager.ts'
 import type { MeshRendererSystem } from '../graphics/MeshRendererSystem.ts'
 import type { Renderer } from '../graphics/Renderer.ts'
+import { getWorldTransform } from '../components/Hierarchy.ts'
 
 interface AnimationEntry {
   mixer: THREE.AnimationMixer
@@ -14,6 +15,7 @@ interface AnimationEntry {
   component: AnimationComponent
   action?: THREE.AnimationAction
   activeClipId?: string
+  assetId: string
 }
 
 export class AnimationSystem {
@@ -30,9 +32,30 @@ export class AnimationSystem {
     this.renderer = renderer
   }
 
-  /** Return the animated entity's scene target, if one is active. */
   getTarget(entityId: number): THREE.Object3D | undefined {
     return this.mixers.get(entityId)?.target
+  }
+
+  /**
+   * Drop every runtime mixer/target without touching ECS state. Call when the
+   * scene is replaced or Play Mode ends so no stale animation state survives;
+   * the next update() rebuilds entries from current components.
+   */
+  clear(): void {
+    for (const entityId of [...this.mixers.keys()]) {
+      this.removeEntry(entityId)
+    }
+  }
+
+  /**
+   * Reset one entity's playback to the bind pose and mixer time zero.
+   * The entry is discarded and rebuilt on demand, so no Three.js action
+   * time semantics leak into the reset. Editor preview Stop uses this.
+   */
+  resetPlayback(entityId: number): void {
+    if (!this.mixers.has(entityId)) return
+    this.removeEntry(entityId, { keepMesh: true })
+    this.update(0)
   }
 
   update(deltaTime: number): void {
@@ -50,7 +73,12 @@ export class AnimationSystem {
       this.syncTransform(entry, entity)
 
       if (!component.playing || !component.activeClip) {
-        if (entry.action) {
+        // Paused with a clip: freeze the current pose by keeping the action
+        // alive and simply not advancing mixer time. Stopping the action
+        // would snap animated nodes back to the bind pose, which is Stop's
+        // job (see resetPlayback), not Pause's.
+        const paused = !component.playing && component.activeClip !== undefined
+        if (!paused && entry.action) {
           entry.action.stop()
           entry.action = undefined
         }
@@ -64,18 +92,12 @@ export class AnimationSystem {
       }
 
       this.syncAction(entry, component, clip)
-      entry.mixer.update(deltaTime)
+      entry.mixer.update(deltaTime * resolveSpeed(component))
     }
 
-    for (const [entityId, entry] of this.mixers.entries()) {
+    for (const [entityId] of this.mixers.entries()) {
       if (!activeEntityIds.has(entityId)) {
-        entry.action?.stop()
-        this.renderer.remove(entry.target)
-        if (entry.mesh) {
-          entry.target.remove(entry.mesh)
-          this.renderer.removeMesh(entityId)
-        }
-        this.mixers.delete(entityId)
+        this.removeEntry(entityId)
       }
     }
   }
@@ -83,8 +105,13 @@ export class AnimationSystem {
   private ensureMixer(entity: Entity, component: AnimationComponent): AnimationEntry | undefined {
     const existing = this.mixers.get(entity.id)
     if (existing) {
-      existing.component = component
-      return existing
+      if (existing.assetId === (component.assetId ?? '')) {
+        existing.component = component
+        return existing
+      }
+      // The entity now references a different asset (scene switch, undo/redo):
+      // discard the stale mixer/target instead of reusing it.
+      this.removeEntry(entity.id)
     }
 
     if (!component.assetId) {
@@ -112,7 +139,7 @@ export class AnimationSystem {
     this.renderer.add(target)
 
     const mixer = new THREE.AnimationMixer(target)
-    const entry: AnimationEntry = { mixer, target, mesh, component, activeClipId: undefined }
+    const entry: AnimationEntry = { mixer, target, mesh, component, activeClipId: undefined, assetId: component.assetId ?? '' }
     this.mixers.set(entity.id, entry)
     this.syncTransform(entry, entity)
     return entry
@@ -152,13 +179,31 @@ export class AnimationSystem {
     const transform = entity.getComponent<TransformComponent>('transform')
     if (!transform) return
 
-    entry.target.position.set(transform.position.x, transform.position.y, transform.position.z)
-    entry.target.rotation.set(transform.rotation.x, transform.rotation.y, transform.rotation.z)
-    entry.target.scale.set(transform.scale.x, transform.scale.y, transform.scale.z)
+    const world = getWorldTransform(this.scene, entity.id)
+    entry.target.position.set(world.position.x, world.position.y, world.position.z)
+    entry.target.rotation.set(world.rotation.x, world.rotation.y, world.rotation.z)
+    entry.target.scale.set(world.scale.x, world.scale.y, world.scale.z)
   }
 
   private resolveMesh(entity: Entity): THREE.Mesh | undefined {
     const mesh = this.meshRendererSystem.ensureMesh(entity.id)
     return mesh ?? undefined
   }
+
+  private removeEntry(entityId: number, options: { keepMesh?: boolean } = {}): void {
+    const entry = this.mixers.get(entityId)
+    if (!entry) return
+    entry.action?.stop()
+    this.renderer.remove(entry.target)
+    if (!options.keepMesh && entry.mesh) {
+      entry.target.remove(entry.mesh)
+      this.renderer.removeMesh(entityId)
+    }
+    this.mixers.delete(entityId)
+  }
+}
+
+function resolveSpeed(component: AnimationComponent): number {
+  const speed = component.speed
+  return typeof speed === 'number' && Number.isFinite(speed) && speed >= 0 ? speed : 1
 }

@@ -2,13 +2,21 @@ import type { Entity } from '../engine/index.ts'
 
 export interface HierarchyPanelOptions {
   onSelectEntity: (entity: Entity) => void
+  getParentId?: (entityId: number) => number | null
+  onRenameEntity?: (entity: Entity, newName: string) => void
+  onReparentEntity?: (childId: number, newParentId: number | null) => void
 }
 
-/** DOM-backed entity list for the active scene. */
+/** DOM-backed entity tree for the active scene. Roots render flat; children nest. */
 export class HierarchyPanel {
   readonly element: HTMLElement
   private readonly list: HTMLUListElement
   private readonly options: HierarchyPanelOptions
+  private lastEntities: Entity[] = []
+  private lastSelectedId: number | null = null
+  private renamingId: number | null = null
+  private cancelBlurCommit = false
+  private dragId: number | null = null
 
   constructor(options: HierarchyPanelOptions) {
     this.options = options
@@ -24,26 +32,233 @@ export class HierarchyPanel {
     header.append(title, scene)
     this.list = document.createElement('ul')
     this.list.className = 'trion-editor-entity-list'
+    this.list.addEventListener('dragover', (e) => this.onListDragOver(e))
+    this.list.addEventListener('drop', (e) => this.onListDrop(e))
     this.element.append(header, this.list)
   }
 
   render(entities: Entity[], selectedEntityId: number | null): void {
-    this.list.replaceChildren()
-    for (const entity of entities) {
-      const item = document.createElement('li')
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'trion-editor-entity'
-      button.textContent = entity.name?.trim() || `Entity ${entity.id}`
-      button.title = `Entity ID: ${entity.id}`
-      button.classList.toggle('is-selected', entity.id === selectedEntityId)
-      button.addEventListener('click', () => this.options.onSelectEntity(entity))
-      item.appendChild(button)
-      this.list.appendChild(item)
+    this.lastEntities = entities
+    this.lastSelectedId = selectedEntityId
+    if (this.renamingId !== null && entities.some((entity) => entity.id === this.renamingId)) {
+      this.syncSelectionClasses(selectedEntityId)
+      return
     }
+    this.renamingId = null
+    this.list.replaceChildren()
+    for (const root of this.resolveRoots(entities)) {
+      this.list.appendChild(this.createRow(root, entities, selectedEntityId, new Set()))
+    }
+  }
+
+  /** Begin inline rename for an entity. No-op when already renaming it. */
+  beginRename(entityId: number): void {
+    if (this.renamingId === entityId) {
+      this.focusRenameInput()
+      return
+    }
+    if (!this.lastEntities.some((entity) => entity.id === entityId)) return
+    this.renamingId = entityId
+    this.cancelBlurCommit = false
+    this.list.replaceChildren()
+    for (const root of this.resolveRoots(this.lastEntities)) {
+      this.list.appendChild(this.createRow(root, this.lastEntities, this.lastSelectedId, new Set()))
+    }
+    this.focusRenameInput()
+  }
+
+  isRenaming(): boolean {
+    return this.renamingId !== null
   }
 
   dispose(): void {
     this.element.remove()
+  }
+
+  private resolveRoots(entities: Entity[]): Entity[] {
+    const ids = new Set(entities.map((entity) => entity.id))
+    return entities.filter((entity) => {
+      const parentId = this.readParent(entity.id)
+      return parentId === null || !ids.has(parentId) || parentId === entity.id
+    })
+  }
+
+  private childrenOf(entities: Entity[], parentId: number): Entity[] {
+    return entities.filter((entity) => entity.id !== parentId && this.readParent(entity.id) === parentId)
+  }
+
+  private readParent(entityId: number): number | null {
+    return this.options.getParentId?.(entityId) ?? null
+  }
+
+  private displayName(entity: Entity): string {
+    return entity.name?.trim() || `Entity ${entity.id}`
+  }
+
+  private createRow(
+    entity: Entity,
+    entities: Entity[],
+    selectedEntityId: number | null,
+    ancestors: Set<number>,
+  ): HTMLLIElement {
+    const item = document.createElement('li')
+    item.className = 'trion-editor-entity-item'
+    item.dataset.entityId = String(entity.id)
+    item.draggable = this.renamingId !== entity.id
+    item.addEventListener('dragstart', (e) => this.onRowDragStart(e, entity.id))
+    item.addEventListener('dragover', (e) => this.onRowDragOver(e, item, entity.id))
+    item.addEventListener('dragleave', () => item.classList.remove('is-drop-target'))
+    item.addEventListener('drop', (e) => this.onRowDrop(e, entity.id))
+    item.addEventListener('dragend', () => this.clearDragState())
+
+    if (this.renamingId === entity.id) {
+      item.appendChild(this.createRenameInput(entity))
+    } else {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'trion-editor-entity'
+      button.textContent = this.displayName(entity)
+      button.title = `Entity ID: ${entity.id}`
+      button.classList.toggle('is-selected', entity.id === selectedEntityId)
+      button.dataset.entityId = String(entity.id)
+      button.addEventListener('click', () => this.options.onSelectEntity(entity))
+      button.addEventListener('dblclick', () => {
+        this.options.onSelectEntity(entity)
+        this.beginRename(entity.id)
+      })
+      item.appendChild(button)
+    }
+
+    if (ancestors.has(entity.id)) return item
+    const next = new Set(ancestors)
+    next.add(entity.id)
+    const children = this.childrenOf(entities, entity.id).filter((child) => !next.has(child.id))
+    if (children.length > 0) {
+      const nested = document.createElement('ul')
+      nested.className = 'trion-editor-entity-list trion-editor-entity-children'
+      for (const child of children) {
+        nested.appendChild(this.createRow(child, entities, selectedEntityId, next))
+      }
+      item.appendChild(nested)
+    }
+    return item
+  }
+
+  private createRenameInput(entity: Entity): HTMLInputElement {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'trion-editor-rename'
+    input.setAttribute('aria-label', `Rename Entity ${entity.id}`)
+    input.value = entity.name ?? ''
+    input.addEventListener('click', (e) => e.stopPropagation())
+    input.addEventListener('pointerdown', (e) => e.stopPropagation())
+    input.addEventListener('dblclick', (e) => e.stopPropagation())
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        this.commitRename(entity, true)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        this.cancelRename()
+      }
+    })
+    input.addEventListener('blur', () => {
+      if (this.cancelBlurCommit || this.renamingId !== entity.id) return
+      this.commitRename(entity, false)
+    })
+    return input
+  }
+
+  private focusRenameInput(): void {
+    const input = this.list.querySelector<HTMLInputElement>('.trion-editor-rename')
+    if (!input) return
+    input.focus()
+    input.select()
+  }
+
+  private commitRename(entity: Entity, refocus: boolean): void {
+    if (this.renamingId !== entity.id) return
+    const input = this.list.querySelector<HTMLInputElement>('.trion-editor-rename')
+    const newName = input ? input.value : (entity.name ?? '')
+    this.renamingId = null
+    this.options.onRenameEntity?.(entity, newName)
+    this.render(this.lastEntities, this.lastSelectedId)
+    if (refocus) this.focusRowButton(entity.id)
+  }
+
+  private cancelRename(): void {
+    if (this.renamingId === null) return
+    const id = this.renamingId
+    this.renamingId = null
+    this.cancelBlurCommit = true
+    this.render(this.lastEntities, this.lastSelectedId)
+    this.focusRowButton(id)
+    queueMicrotask(() => {
+      this.cancelBlurCommit = false
+    })
+  }
+
+  private focusRowButton(entityId: number): void {
+    const button = this.list.querySelector<HTMLButtonElement>(`button.trion-editor-entity[data-entity-id="${entityId}"]`)
+    button?.focus()
+  }
+
+  private syncSelectionClasses(selectedEntityId: number | null): void {
+    for (const button of this.list.querySelectorAll<HTMLButtonElement>('button.trion-editor-entity')) {
+      button.classList.toggle('is-selected', button.dataset.entityId === String(selectedEntityId))
+    }
+  }
+
+  private onRowDragStart(e: DragEvent, entityId: number): void {
+    if (this.renamingId !== null) {
+      e.preventDefault()
+      return
+    }
+    this.dragId = entityId
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', String(entityId))
+    }
+  }
+
+  private onRowDragOver(e: DragEvent, item: HTMLLIElement, entityId: number): void {
+    if (this.dragId === null || this.dragId === entityId) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    item.classList.add('is-drop-target')
+  }
+
+  private onRowDrop(e: DragEvent, entityId: number): void {
+    if (this.dragId === null || this.dragId === entityId) return
+    e.preventDefault()
+    e.stopPropagation()
+    const childId = this.dragId
+    this.clearDragState()
+    this.options.onReparentEntity?.(childId, entityId)
+  }
+
+  private onListDragOver(e: DragEvent): void {
+    if (this.dragId === null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  }
+
+  private onListDrop(e: DragEvent): void {
+    if (this.dragId === null) return
+    const target = e.target as HTMLElement | null
+    if (target?.closest('[data-entity-id]')) return
+    e.preventDefault()
+    const childId = this.dragId
+    this.clearDragState()
+    this.options.onReparentEntity?.(childId, null)
+  }
+
+  private clearDragState(): void {
+    this.dragId = null
+    for (const row of this.list.querySelectorAll('.is-drop-target')) {
+      row.classList.remove('is-drop-target')
+    }
   }
 }

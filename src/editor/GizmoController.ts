@@ -7,6 +7,7 @@ import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.t
 import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
 import type { EditorCamera } from './EditorCamera.ts'
 import type { SelectionState } from './SelectionState.ts'
+import { worldToLocal } from '../engine/components/Hierarchy.ts'
 import { transformsEqual, type TransformData } from './EditorHistory.ts'
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -169,7 +170,12 @@ export class GizmoController {
     return mesh
   }
 
-  /** Copy the attached object's transform into the ECS TransformComponent. */
+  /**
+   * Copy the attached object's transform into the ECS TransformComponent.
+   * The renderer scene stays flat so the object carries the world transform;
+   * it is converted back to the entity's local transform here, keeping the
+   * ECS TransformComponent authoritative for hierarchy composition.
+   */
   private syncToComponent(): void {
     if (this.currentEntityId === null || !this.currentTarget) return
 
@@ -179,17 +185,24 @@ export class GizmoController {
     const transform = entity.getComponent<TransformComponent>('transform')
     if (!transform) return
 
-    transform.position.x = this.currentTarget.position.x
-    transform.position.y = this.currentTarget.position.y
-    transform.position.z = this.currentTarget.position.z
+    const world = new THREE.Matrix4().compose(
+      this.currentTarget.position.clone(),
+      this.currentTarget.quaternion.clone(),
+      this.currentTarget.scale.clone(),
+    )
+    const local = worldToLocal(this.scene, this.currentEntityId, world)
 
-    transform.rotation.x = this.currentTarget.rotation.x
-    transform.rotation.y = this.currentTarget.rotation.y
-    transform.rotation.z = this.currentTarget.rotation.z
+    transform.position.x = local.position.x
+    transform.position.y = local.position.y
+    transform.position.z = local.position.z
 
-    transform.scale.x = this.currentTarget.scale.x
-    transform.scale.y = this.currentTarget.scale.y
-    transform.scale.z = this.currentTarget.scale.z
+    transform.rotation.x = local.rotation.x
+    transform.rotation.y = local.rotation.y
+    transform.rotation.z = local.rotation.z
+
+    transform.scale.x = local.scale.x
+    transform.scale.y = local.scale.y
+    transform.scale.z = local.scale.z
 
     this.onTransformChanged?.(transform)
   }

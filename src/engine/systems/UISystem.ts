@@ -18,10 +18,8 @@ export class UISystem {
   constructor(scene: Scene) {
     this.scene = scene
 
-    // Create a container to hold all UI elements
     this.root = document.createElement('div')
     this.root.id = 'trion-ui-root'
-    // Position it absolutely over everything
     this.root.style.position = 'absolute'
     this.root.style.top = '0'
     this.root.style.left = '0'
@@ -58,9 +56,7 @@ export class UISystem {
 
       const button = entity.getComponent<UIButtonComponent>('uiButton')
       if (button) {
-        // Re-enable pointer events so interaction works
         el.style.pointerEvents = button.interactable && ui.visible ? 'auto' : 'none'
-        // Let the CSS cursor indicate interactivity
         el.style.cursor = button.interactable && ui.visible ? 'pointer' : 'default'
       } else {
         el.style.pointerEvents = 'none'
@@ -81,7 +77,6 @@ export class UISystem {
     el.style.justifyContent = 'center'
     el.style.alignItems = 'center'
 
-    // Attach pointer events for the UIButton interaction mapping
     el.addEventListener('pointerenter', () => this.setButtonHover(entityId, true))
     el.addEventListener('pointerleave', () => {
       this.setButtonHover(entityId, false)

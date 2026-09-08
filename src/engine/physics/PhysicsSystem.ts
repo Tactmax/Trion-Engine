@@ -43,7 +43,6 @@ export class PhysicsSystem {
   private readonly entries = new Map<number, PhysicsEntry>()
   private accumulator = 0
 
-  /** Fixed physics timestep in seconds. */
   static readonly FIXED_STEP = 1 / 60
 
   constructor(scene: Scene) {
@@ -106,11 +105,27 @@ export class PhysicsSystem {
     this.backend = null
   }
 
-
   /**
-   * Create backend bodies/colliders for entities that have physics components
-   * but are not yet tracked by this system.
+   * Discard all runtime physics state without disposing the backend.
+   *
+   * The backend world is left empty and ready for a fresh run: every tracked
+   * body/collider is destroyed, the entry map is cleared and the fixed-step
+   * accumulator is reset. The backend itself (including gravity) is preserved
+   * so the next Play Mode session re-registers bodies from the ECS state.
+   *
+   * Call when entering Play Mode (to drop any previous run's state) and when
+   * leaving Play Mode (so runtime movement never leaks into edit mode).
    */
+  reset(): void {
+    if (!this.backend) {
+      this.accumulator = 0
+      return
+    }
+    this.disposeAllEntries()
+    this.accumulator = 0
+  }
+
+
   private syncNewEntities(): void {
     if (!this.backend) return
 
