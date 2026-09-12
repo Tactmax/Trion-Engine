@@ -129,6 +129,100 @@ export function duplicateEntitySubtree(
   return { rootId, sourceId, records }
 }
 
+/**
+ * Reduce a selection to its hierarchy roots: any ID whose ancestor chain
+ * contains another selected ID is dropped, so subtree operations (duplicate,
+ * delete, reparent) never process the same hierarchy twice.
+ */
+export function filterToRoots(scene: Scene, entityIds: number[]): number[] {
+  const selected = new Set(entityIds.filter((id) => scene.getEntity(id) !== undefined))
+  const roots: number[] = []
+  for (const id of entityIds) {
+    if (!selected.has(id)) continue
+    let ancestor = readParentId(scene.getEntity(id)!)
+    let nested = false
+    const seen = new Set<number>([id])
+    while (ancestor !== null && !seen.has(ancestor)) {
+      if (selected.has(ancestor)) {
+        nested = true
+        break
+      }
+      seen.add(ancestor)
+      ancestor = scene.getEntity(ancestor) ? readParentId(scene.getEntity(ancestor)!) : null
+    }
+    if (!nested) roots.push(id)
+  }
+  return roots
+}
+
+export interface MultiDuplicateResult {
+  rootIds: number[]
+  sourceIds: number[]
+  records: DuplicatedEntityRecord[]
+  idMap: Map<number, number>
+}
+
+/**
+ * Duplicate several entities (and their descendant hierarchies) in one pass
+ * with a shared ID map, so parent links between duplicated sets remap to the
+ * new IDs while links outside the duplicated set keep pointing at the
+ * original parents. Callers should pass selection roots (see filterToRoots).
+ */
+export function duplicateMultipleSubtrees(
+  scene: Scene,
+  sourceIds: number[],
+  resolveName?: (base: string) => string,
+): MultiDuplicateResult | null {
+  const ordered: number[] = []
+  for (const sourceId of sourceIds) {
+    for (const id of collectSubtree(scene, sourceId)) {
+      if (!ordered.includes(id)) ordered.push(id)
+    }
+  }
+  if (ordered.length === 0) return null
+
+  const idMap = new Map<number, number>()
+  const pending: Array<{ sourceId: number; entityId: number; metadata: EntityMetadata; components: Component[] }> = []
+
+  for (const oldId of ordered) {
+    const current = scene.getEntity(oldId)
+    if (!current) continue
+    const baseName = current.name ?? `Entity ${oldId}`
+    const metadata: EntityMetadata = {
+      ...(current.name === undefined ? {} : { name: resolveName ? resolveName(baseName) : baseName }),
+      ...(current.tag === undefined ? {} : { tag: current.tag }),
+    }
+    const components = current.getAllComponents().map((c) => cloneComponent(c))
+    const created = scene.createEntity(metadata)
+    idMap.set(oldId, created.id)
+    pending.push({ sourceId: oldId, entityId: created.id, metadata, components })
+  }
+
+  const records: DuplicatedEntityRecord[] = []
+  for (const entry of pending) {
+    remapParentRefs(entry.components, idMap)
+    const entity = scene.getEntity(entry.entityId)
+    if (!entity) continue
+    for (const component of entry.components) {
+      entity.addComponent(component)
+    }
+    records.push({
+      id: entry.entityId,
+      ...(entry.metadata.name === undefined ? {} : { name: entry.metadata.name }),
+      ...(entry.metadata.tag === undefined ? {} : { tag: entry.metadata.tag }),
+      components: entry.components.map((c) => cloneComponent(c)),
+    })
+  }
+
+  const rootIds: number[] = []
+  for (const sourceId of sourceIds) {
+    const mapped = idMap.get(sourceId)
+    if (mapped !== undefined) rootIds.push(mapped)
+  }
+  if (rootIds.length === 0 || records.length === 0) return null
+  return { rootIds, sourceIds: [...sourceIds], records, idMap }
+}
+
 export function destroyDuplicatedEntities(scene: Scene, ids: number[]): void {
   for (const id of ids) {
     scene.destroyEntity(id)

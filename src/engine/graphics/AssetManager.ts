@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { loadGLTFAsset } from './GLTFLoader.ts'
+import { trionLogger } from '../core/Logger.ts'
 
 export interface GLTFMeshAsset {
   geometryId: string
@@ -92,10 +93,13 @@ export class AssetManager {
       }
 
       this.gltfAssets.set(id, result)
+      trionLogger.info(`Loaded asset: ${id}`, { source: 'Asset' })
       return result
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to load GLTF asset "${id}" from "${url}": ${detail}`, { cause: error })
+      const wrapped = new Error(`Failed to load GLTF asset "${id}" from "${url}": ${detail}`, { cause: error })
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
     }
   }
 
@@ -235,13 +239,16 @@ export class AssetManager {
       try {
         const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer.slice(0))
         this.registerAudioBuffer(id, audioBuffer)
+        trionLogger.info(`Loaded asset: ${id}`, { source: 'Asset' })
         return audioBuffer
       } finally {
         await decodeContext.close()
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to load audio "${id}" from "${url}": ${detail}`, { cause: error })
+      const wrapped = new Error(`Failed to load audio "${id}" from "${url}": ${detail}`, { cause: error })
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
     }
   }
 
@@ -284,10 +291,13 @@ export class AssetManager {
       const texture = await new THREE.TextureLoader().loadAsync(url)
       texture.colorSpace = THREE.SRGBColorSpace
       this.registerTexture(id, texture)
+      trionLogger.info(`Loaded asset: ${id}`, { source: 'Asset' })
       return texture
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to load texture "${id}" from "${url}": ${detail}`, { cause: error })
+      const wrapped = new Error(`Failed to load texture "${id}" from "${url}": ${detail}`, { cause: error })
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
     }
   }
 

@@ -8,7 +8,6 @@ import {
   LightSystem,
   ScriptSystem,
   AnimationSystem,
-  AudioSystem,
   Input,
   PhysicsSystem,
   RapierPhysicsBackend,
@@ -16,7 +15,6 @@ import {
   createMeshRenderer,
   createCamera,
   createAnimation,
-  createAudio,
   createScript,
   createUI,
   createUIText,
@@ -25,7 +23,7 @@ import {
 } from './engine/index.ts'
 import * as THREE from 'three'
 import type { TransformComponent } from './engine/components/Transform.ts'
-import type { AudioComponent } from './engine/components/Audio.ts'
+import { trionLogger } from './engine/index.ts'
 import { Editor } from './editor/index.ts'
 
 const canvas = document.createElement('canvas')
@@ -82,25 +80,8 @@ void assets.loadGLTF('rubiks-cube', '/assets/rubiks-cube.glb').then((result) => 
       },
     }),
   )
-})
-
-const audioEntity = engine.scene.createEntity()
-void assets.loadAudio('demo-audio', '/assets/Amen%20in%20a%20nutshell.mp3').then(() => {
-  audioEntity.addComponent(createAudio({
-    assetId: 'demo-audio',
-    playing: false,
-    loop: false,
-    volume: 0.5,
-  }))
-  audioEntity.addComponent(createScript({
-    onUpdate(_dt, entity) {
-      const audio = entity.getComponent<AudioComponent>('audio')
-      if (!audio || audio.playing) return
-      if (input.getMouseButtonDown(0) || input.getKeyDown('Space')) {
-        audio.playing = false
-      }
-    },
-  }))
+}).catch(() => {
+  // AssetManager already reported the failure to the console.
 })
 
 const uiEntity = engine.scene.createEntity()
@@ -142,14 +123,14 @@ const physicsSystem = new PhysicsSystem(engine.scene)
 const rapierBackend = new RapierPhysicsBackend()
 rapierBackend.initialize({ x: 0, y: -9.81, z: 0 }).then(() => {
   physicsSystem.setBackend(rapierBackend)
+  trionLogger.info('Physics backend initialized', { source: 'Physics' })
 }).catch((error) => {
-  console.error('[Trion] Failed to initialize physics backend:', error)
+  trionLogger.error('Physics initialization failed', { source: 'Physics', error })
 })
 const scriptSystem = new ScriptSystem(engine.scene)
 const meshRendererSystem = new MeshRendererSystem(engine.scene, assets, renderer)
 const lightSystem = new LightSystem(engine.scene, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
-const audioSystem = new AudioSystem(engine.scene, assets)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
 const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem)
@@ -163,7 +144,6 @@ engine.onPostUpdate = (deltaTime: number) => {
   if (editor.isPlaying()) {
     physicsSystem.update(deltaTime)
     scriptSystem.update(deltaTime)
-    audioSystem.update(deltaTime)
     uiSystem.update(deltaTime)
   }
   // Rendering sync stays active in edit mode so animated entities remain visible.

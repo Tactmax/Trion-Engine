@@ -1,4 +1,5 @@
 import type { MaterialDefinition } from '../engine/graphics/MaterialUtils.ts'
+import { trionLogger } from '../engine/core/Logger.ts'
 
 interface MaterialStorePayload {
   version: 1
@@ -110,7 +111,7 @@ export class MaterialStore {
       const payload: MaterialStorePayload = { version: 1, materials: [...this.materials.values()] }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch (error) {
-      console.warn('[MaterialStore] Failed to persist materials:', error)
+      trionLogger.warn('Failed to persist materials', { source: 'Editor', error })
     }
   }
 }

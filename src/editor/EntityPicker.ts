@@ -3,6 +3,7 @@ import type { Scene } from '../engine/core/Scene.ts'
 import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.ts'
 import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
 import type { SelectionState } from './SelectionState.ts'
+import { getWorldTransform } from '../engine/components/Hierarchy.ts'
 
 export interface EntityPickerOptions {
   canvas: HTMLCanvasElement
@@ -12,6 +13,20 @@ export interface EntityPickerOptions {
   animationSystem?: AnimationSystem
   selectionState: SelectionState
   isGizmoInteracting?: () => boolean
+}
+
+const LIGHT_COMPONENT_TYPES = ['directionalLight', 'pointLight', 'spotLight'] as const
+
+const lightProxyGeometry = new THREE.SphereGeometry(1, 12, 8)
+const lightProxyMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false })
+
+/**
+ * Raycast-target radius for a light pick proxy from its camera distance.
+ * Keeps light helpers clickable both up close and zoomed out.
+ */
+export function lightPickRadius(cameraDistance: number): number {
+  if (!Number.isFinite(cameraDistance)) return 0.3
+  return Math.min(0.8, Math.max(0.12, cameraDistance * 0.035))
 }
 
 /**
@@ -77,14 +92,14 @@ export class EntityPicker {
         return
       }
 
-      this.pick(e.clientX, e.clientY)
+      this.pick(e.clientX, e.clientY, e.ctrlKey || e.metaKey)
     }
 
     this.canvas.addEventListener('pointerdown', this.onPointerDown)
     this.canvas.addEventListener('pointerup', this.onPointerUp)
   }
 
-  private pick(clientX: number, clientY: number): void {
+  private pick(clientX: number, clientY: number, toggle = false): void {
     const rect = this.canvas.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return
 
@@ -97,33 +112,64 @@ export class EntityPicker {
     const entities = scene.getAllEntities()
     const candidateMeshes: THREE.Object3D[] = []
     const meshToEntityMap = new Map<THREE.Object3D, number>()
+    const covered = new Set<number>()
 
     for (const entity of entities) {
       const target = this.animationSystem?.getTarget(entity.id)
       if (target && target.parent) {
         candidateMeshes.push(target)
         meshToEntityMap.set(target, entity.id)
+        covered.add(entity.id)
         continue
       }
       const mesh = this.meshRendererSystem.getMesh(entity.id)
       if (mesh) {
         candidateMeshes.push(mesh)
         meshToEntityMap.set(mesh, entity.id)
+        covered.add(entity.id)
       }
     }
 
-    if (candidateMeshes.length === 0) {
-      this.selectionState.select(null)
+    // Light-only entities have no mesh to hit: raycast a detached,
+    // never-rendered proxy sphere at each light's world position instead.
+    // Positions resolve fresh from ECS here, so no per-frame sync is needed.
+    const lightProxies: THREE.Object3D[] = []
+    const proxyToEntityMap = new Map<THREE.Object3D, number>()
+    for (const entity of entities) {
+      if (covered.has(entity.id)) continue
+      let isLight = false
+      for (const lightType of LIGHT_COMPONENT_TYPES) {
+        if (entity.hasComponent(lightType)) {
+          isLight = true
+          break
+        }
+      }
+      if (!isLight) continue
+      const world = getWorldTransform(scene, entity.id)
+      const position = new THREE.Vector3(world.position.x, world.position.y, world.position.z)
+      const proxy = new THREE.Mesh(lightProxyGeometry, lightProxyMaterial)
+      proxy.position.copy(position)
+      proxy.scale.setScalar(lightPickRadius(this.camera.position.distanceTo(position)))
+      proxy.updateMatrixWorld()
+      lightProxies.push(proxy)
+      proxyToEntityMap.set(proxy, entity.id)
+    }
+
+    if (candidateMeshes.length === 0 && lightProxies.length === 0) {
+      if (!toggle) this.selectionState.select(null)
       return
     }
 
-    const intersects = this.raycaster.intersectObjects(candidateMeshes, true)
+    const intersects = [
+      ...this.raycaster.intersectObjects(candidateMeshes, true),
+      ...this.raycaster.intersectObjects(lightProxies, false),
+    ].sort((a, b) => a.distance - b.distance)
 
     if (intersects.length > 0) {
       let current: THREE.Object3D | null = intersects[0].object
-      let hitEntityId: number | null = null
+      let hitEntityId: number | null = proxyToEntityMap.get(current) ?? null
 
-      while (current) {
+      while (current && hitEntityId === null) {
         if (meshToEntityMap.has(current)) {
           hitEntityId = meshToEntityMap.get(current)!
           break
@@ -132,11 +178,15 @@ export class EntityPicker {
       }
 
       if (hitEntityId !== null) {
-        this.selectionState.select(hitEntityId)
-      } else {
+        if (toggle) {
+          this.selectionState.toggleSelection(hitEntityId)
+        } else {
+          this.selectionState.select(hitEntityId)
+        }
+      } else if (!toggle) {
         this.selectionState.select(null)
       }
-    } else {
+    } else if (!toggle) {
       this.selectionState.select(null)
     }
   }

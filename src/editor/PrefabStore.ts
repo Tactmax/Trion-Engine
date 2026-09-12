@@ -1,4 +1,5 @@
 import { createPrefab, type Prefab } from '../engine/core/Prefab.ts'
+import { trionLogger } from '../engine/core/Logger.ts'
 import type { Component } from '../engine/components/Component.ts'
 import type { Entity } from '../engine/core/Entity.ts'
 import { restoreComponent, serializeEntities } from '../engine/core/SceneSerialization.ts'
@@ -101,7 +102,7 @@ export class PrefabStore {
       const payload: PrefabStorePayload = { version: 1, prefabs: [...this.prefabs.values()] }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch (error) {
-      console.warn('[PrefabStore] Failed to persist prefabs:', error)
+      trionLogger.warn('Failed to persist prefabs', { source: 'Editor', error })
     }
   }
 }

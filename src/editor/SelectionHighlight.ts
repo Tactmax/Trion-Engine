@@ -4,9 +4,14 @@ import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.t
 import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
 import type { SelectionState } from './SelectionState.ts'
 
+interface HighlightEntry {
+  helper: THREE.BoxHelper
+  target: THREE.Object3D
+}
+
 /**
- * Editor-only visual selection box helper.
- * Highlights the currently selected entity's mesh without modifying its material or ECS data.
+ * Editor-only visual selection box helpers.
+ * Highlights every selected entity's mesh without modifying materials or ECS data.
  */
 export class SelectionHighlight {
   private readonly renderer: Renderer
@@ -14,8 +19,8 @@ export class SelectionHighlight {
   private readonly selectionState: SelectionState
   private readonly animationSystem?: AnimationSystem
 
-  private helper: THREE.BoxHelper | null = null
-  private targetMesh: THREE.Object3D | null = null
+  private readonly entries = new Map<number, HighlightEntry>()
+  private visible = true
   private readonly unsubscribe: () => void
 
   constructor(
@@ -29,23 +34,22 @@ export class SelectionHighlight {
     this.selectionState = selectionState
     this.animationSystem = animationSystem
 
-    this.unsubscribe = this.selectionState.onChange((selectedId) => {
-      this.onSelectionChanged(selectedId)
+    this.unsubscribe = this.selectionState.onChange((_selectedId, selectedIds) => {
+      this.onSelectionChanged(selectedIds ?? (_selectedId !== null ? [_selectedId] : []))
     })
   }
 
-  private onSelectionChanged(selectedId: number | null): void {
-    this.removeHelper()
-
-    if (selectedId === null) return
-
-    const mesh = this.resolveSelectionObject(selectedId)
-    if (!mesh) return
-
-    this.targetMesh = mesh
-    this.helper = new THREE.BoxHelper(mesh, 0x4f8fd3)
-    this.helper.raycast = () => {}
-    this.renderer.add(this.helper)
+  private onSelectionChanged(selectedIds: number[]): void {
+    this.removeHelpers()
+    for (const id of selectedIds) {
+      const mesh = this.resolveSelectionObject(id)
+      if (!mesh) continue
+      const helper = new THREE.BoxHelper(mesh, 0x4f8fd3)
+      helper.raycast = () => {}
+      helper.visible = this.visible
+      this.renderer.add(helper)
+      this.entries.set(id, { helper, target: mesh })
+    }
   }
 
   private resolveSelectionObject(entityId: number): THREE.Object3D | null {
@@ -60,38 +64,44 @@ export class SelectionHighlight {
   }
 
   update(): void {
-    if (!this.helper || !this.targetMesh) return
-
-    if (!this.targetMesh.parent) {
-      this.removeHelper()
-      return
+    for (const [id, entry] of this.entries) {
+      if (!entry.target.parent) {
+        this.renderer.remove(entry.helper)
+        entry.helper.geometry.dispose()
+        disposeMaterial(entry.helper.material)
+        this.entries.delete(id)
+        continue
+      }
+      entry.helper.update()
     }
-
-    this.helper.update()
   }
 
   setVisible(visible: boolean): void {
-    if (this.helper) {
-      this.helper.visible = visible
+    this.visible = visible
+    for (const entry of this.entries.values()) {
+      entry.helper.visible = visible
     }
   }
 
-  private removeHelper(): void {
-    if (this.helper) {
-      this.renderer.remove(this.helper)
-      this.helper.geometry.dispose()
-      if (Array.isArray(this.helper.material)) {
-        for (const mat of this.helper.material) mat.dispose()
-      } else {
-        this.helper.material.dispose()
-      }
-      this.helper = null
+  private removeHelpers(): void {
+    for (const entry of this.entries.values()) {
+      this.renderer.remove(entry.helper)
+      entry.helper.geometry.dispose()
+      disposeMaterial(entry.helper.material)
     }
-    this.targetMesh = null
+    this.entries.clear()
   }
 
   dispose(): void {
     this.unsubscribe()
-    this.removeHelper()
+    this.removeHelpers()
+  }
+}
+
+function disposeMaterial(material: THREE.Material | THREE.Material[]): void {
+  if (Array.isArray(material)) {
+    for (const entry of material) entry.dispose()
+  } else {
+    material.dispose()
   }
 }

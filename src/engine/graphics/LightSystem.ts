@@ -74,6 +74,16 @@ export class LightSystem {
     return this.cache.size
   }
 
+  /**
+   * Borrow the runtime light for an entity. The entry stays owned by this
+   * system — callers must not dispose, remove or reparent it. Returns
+   * undefined when the entity currently has no synced light (e.g. its
+   * component was just added and sync() has not run yet).
+   */
+  getLight(entityId: number): THREE.Light | undefined {
+    return this.cache.get(entityId)?.light
+  }
+
   clear(): void {
     for (const entityId of [...this.cache.keys()]) this.removeEntry(entityId)
   }
@@ -108,6 +118,10 @@ export class LightSystem {
       light.color.set(normalizeColor(comp.color))
       light.intensity = normalizeNonNegative(comp.intensity, 1)
       light.position.set(px, py, pz)
+      // Mirror the ECS orientation onto the light object itself. Three.js
+      // aims the light via position/target only, so this changes nothing
+      // visually — it lets editor gizmos rotate from the true direction.
+      light.quaternion.setFromEuler(new THREE.Euler(rx, ry, rz))
       const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(rx, ry, rz))
       if (entry.target) {
         entry.target.position.set(px + dir.x, py + dir.y, pz + dir.z)
@@ -133,6 +147,8 @@ export class LightSystem {
       const penumbra = typeof comp.penumbra === 'number' && Number.isFinite(comp.penumbra) ? comp.penumbra : 0
       light.penumbra = Math.min(1, Math.max(0, penumbra))
       light.position.set(px, py, pz)
+      // Same orientation mirror as directional lights (see above).
+      light.quaternion.setFromEuler(new THREE.Euler(rx, ry, rz))
       const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(rx, ry, rz))
       if (entry.target) {
         entry.target.position.set(px + dir.x * 3, py + dir.y * 3, pz + dir.z * 3)

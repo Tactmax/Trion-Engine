@@ -1,10 +1,16 @@
 import type { Entity } from '../engine/index.ts'
 
+export interface HierarchySelectModifiers {
+  ctrlKey: boolean
+  shiftKey: boolean
+}
+
 export interface HierarchyPanelOptions {
-  onSelectEntity: (entity: Entity) => void
+  onSelectEntity: (entity: Entity, modifiers?: HierarchySelectModifiers) => void
   getParentId?: (entityId: number) => number | null
   onRenameEntity?: (entity: Entity, newName: string) => void
   onReparentEntity?: (childId: number, newParentId: number | null) => void
+  onEmptyClick?: () => void
 }
 
 /** DOM-backed entity tree for the active scene. Roots render flat; children nest. */
@@ -14,6 +20,7 @@ export class HierarchyPanel {
   private readonly options: HierarchyPanelOptions
   private lastEntities: Entity[] = []
   private lastSelectedId: number | null = null
+  private lastSelectedIds: number[] = []
   private renamingId: number | null = null
   private cancelBlurCommit = false
   private dragId: number | null = null
@@ -34,21 +41,43 @@ export class HierarchyPanel {
     this.list.className = 'trion-editor-entity-list'
     this.list.addEventListener('dragover', (e) => this.onListDragOver(e))
     this.list.addEventListener('drop', (e) => this.onListDrop(e))
+    this.list.addEventListener('click', (e) => {
+      if (e.target === this.list) this.options.onEmptyClick?.()
+    })
     this.element.append(header, this.list)
   }
 
-  render(entities: Entity[], selectedEntityId: number | null): void {
+  render(entities: Entity[], selectedEntityId: number | null, selectedEntityIds?: number[]): void {
     this.lastEntities = entities
     this.lastSelectedId = selectedEntityId
+    this.lastSelectedIds = selectedEntityIds ?? (selectedEntityId !== null ? [selectedEntityId] : [])
     if (this.renamingId !== null && entities.some((entity) => entity.id === this.renamingId)) {
-      this.syncSelectionClasses(selectedEntityId)
+      this.syncSelectionClasses(this.lastSelectedIds)
       return
     }
     this.renamingId = null
     this.list.replaceChildren()
     for (const root of this.resolveRoots(entities)) {
-      this.list.appendChild(this.createRow(root, entities, selectedEntityId, new Set()))
+      this.list.appendChild(this.createRow(root, entities, new Set(this.lastSelectedIds), new Set()))
     }
+  }
+
+  /** Flat display order (depth-first, roots then nested children). Used for shift range selection. */
+  getDisplayOrder(): number[] {
+    const order: number[] = []
+    const visit = (entity: Entity, ancestors: Set<number>): void => {
+      if (order.includes(entity.id) || ancestors.has(entity.id)) return
+      order.push(entity.id)
+      const next = new Set(ancestors)
+      next.add(entity.id)
+      for (const child of this.childrenOf(this.lastEntities, entity.id)) {
+        visit(child, next)
+      }
+    }
+    for (const root of this.resolveRoots(this.lastEntities)) {
+      visit(root, new Set())
+    }
+    return order
   }
 
   /** Begin inline rename for an entity. No-op when already renaming it. */
@@ -62,7 +91,7 @@ export class HierarchyPanel {
     this.cancelBlurCommit = false
     this.list.replaceChildren()
     for (const root of this.resolveRoots(this.lastEntities)) {
-      this.list.appendChild(this.createRow(root, this.lastEntities, this.lastSelectedId, new Set()))
+      this.list.appendChild(this.createRow(root, this.lastEntities, new Set(this.lastSelectedIds), new Set()))
     }
     this.focusRenameInput()
   }
@@ -98,7 +127,7 @@ export class HierarchyPanel {
   private createRow(
     entity: Entity,
     entities: Entity[],
-    selectedEntityId: number | null,
+    selectedIds: Set<number>,
     ancestors: Set<number>,
   ): HTMLLIElement {
     const item = document.createElement('li')
@@ -119,9 +148,12 @@ export class HierarchyPanel {
       button.className = 'trion-editor-entity'
       button.textContent = this.displayName(entity)
       button.title = `Entity ID: ${entity.id}`
-      button.classList.toggle('is-selected', entity.id === selectedEntityId)
+      button.classList.toggle('is-selected', selectedIds.has(entity.id))
       button.dataset.entityId = String(entity.id)
-      button.addEventListener('click', () => this.options.onSelectEntity(entity))
+      button.addEventListener('click', (e) => this.options.onSelectEntity(entity, {
+        ctrlKey: e.ctrlKey || e.metaKey,
+        shiftKey: e.shiftKey,
+      }))
       button.addEventListener('dblclick', () => {
         this.options.onSelectEntity(entity)
         this.beginRename(entity.id)
@@ -137,7 +169,7 @@ export class HierarchyPanel {
       const nested = document.createElement('ul')
       nested.className = 'trion-editor-entity-list trion-editor-entity-children'
       for (const child of children) {
-        nested.appendChild(this.createRow(child, entities, selectedEntityId, next))
+        nested.appendChild(this.createRow(child, entities, selectedIds, next))
       }
       item.appendChild(nested)
     }
@@ -183,7 +215,7 @@ export class HierarchyPanel {
     const newName = input ? input.value : (entity.name ?? '')
     this.renamingId = null
     this.options.onRenameEntity?.(entity, newName)
-    this.render(this.lastEntities, this.lastSelectedId)
+    this.render(this.lastEntities, this.lastSelectedId, this.lastSelectedIds)
     if (refocus) this.focusRowButton(entity.id)
   }
 
@@ -192,7 +224,7 @@ export class HierarchyPanel {
     const id = this.renamingId
     this.renamingId = null
     this.cancelBlurCommit = true
-    this.render(this.lastEntities, this.lastSelectedId)
+    this.render(this.lastEntities, this.lastSelectedId, this.lastSelectedIds)
     this.focusRowButton(id)
     queueMicrotask(() => {
       this.cancelBlurCommit = false
@@ -204,9 +236,10 @@ export class HierarchyPanel {
     button?.focus()
   }
 
-  private syncSelectionClasses(selectedEntityId: number | null): void {
+  private syncSelectionClasses(selectedIds: number[]): void {
+    const selected = new Set(selectedIds.map((id) => String(id)))
     for (const button of this.list.querySelectorAll<HTMLButtonElement>('button.trion-editor-entity')) {
-      button.classList.toggle('is-selected', button.dataset.entityId === String(selectedEntityId))
+      button.classList.toggle('is-selected', selected.has(button.dataset.entityId ?? ''))
     }
   }
 

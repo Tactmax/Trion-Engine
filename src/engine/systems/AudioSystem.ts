@@ -1,6 +1,7 @@
 import type { Scene } from '../core/Scene.ts'
 import type { AudioComponent } from '../components/Audio.ts'
 import type { AssetManager } from '../graphics/AssetManager.ts'
+import { trionLogger } from '../core/Logger.ts'
 
 interface AudioEntry {
   component: AudioComponent
@@ -18,6 +19,7 @@ export class AudioSystem {
   private readonly scene: Scene
   private readonly assets: AssetManager
   private readonly entries = new Map<number, AudioEntry>()
+  private readonly warned = new Set<string>()
   private context: AudioContext | null = null
   private unlockListenerAttached = false
   private unlockHandler: (() => void) | null = null
@@ -122,13 +124,13 @@ export class AudioSystem {
 
   private startPlayback(entry: AudioEntry, component: AudioComponent): void {
     if (!component.assetId) {
-      console.warn('[AudioSystem] Entity is missing an audio asset reference')
+      this.warnOnce('missing-ref', 'Entity is missing an audio asset reference')
       return
     }
 
     const buffer = this.assets.getAudioBuffer(component.assetId)
     if (!buffer) {
-      console.warn(`[AudioSystem] Missing audio buffer "${component.assetId}"`)
+      this.warnOnce(`missing-buffer:${component.assetId}`, `Missing audio buffer "${component.assetId}"`)
       return
     }
 
@@ -152,10 +154,16 @@ export class AudioSystem {
       entry.source = source
       entry.playing = true
     } catch (error) {
-      console.warn('[AudioSystem] Playback could not start:', error)
+      trionLogger.warn('Playback could not start', { source: 'Audio', error })
       component.playing = false
       entry.playing = false
     }
+  }
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key)) return
+    this.warned.add(key)
+    trionLogger.warn(message, { source: 'Audio' })
   }
 
   private stopSource(entry: AudioEntry): void {

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { trionLogger } from '../core/Logger.ts'
 import type { Scene } from '../core/Scene.ts'
 import type { Entity } from '../core/Entity.ts'
 import type { AnimationComponent } from '../components/Animation.ts'
@@ -24,6 +25,7 @@ export class AnimationSystem {
   private readonly meshRendererSystem: MeshRendererSystem
   private readonly renderer: Renderer
   private readonly mixers = new Map<number, AnimationEntry>()
+  private readonly warned = new Set<string>()
 
   constructor(scene: Scene, assets: AssetManager, meshRendererSystem: MeshRendererSystem, renderer: Renderer) {
     this.scene = scene
@@ -87,9 +89,10 @@ export class AnimationSystem {
 
       const clip = this.assets.getAnimation(component.activeClip)
       if (!clip) {
-        console.warn(`[AnimationSystem] Missing animation clip "${component.activeClip}" for entity ${entity.id}`)
+        this.warnOnce(`clip:${entity.id}:${component.activeClip}`, `Animation clip not found: "${component.activeClip}" (entity ${entity.id})`)
         continue
       }
+      this.warned.delete(`clip:${entity.id}:${component.activeClip}`)
 
       this.syncAction(entry, component, clip)
       entry.mixer.update(deltaTime * resolveSpeed(component))
@@ -115,13 +118,13 @@ export class AnimationSystem {
     }
 
     if (!component.assetId) {
-      console.warn(`[AnimationSystem] Entity ${entity.id} is missing an animation asset reference`)
+      this.warnOnce(`asset:${entity.id}`, `Failed to initialize animation: entity ${entity.id} is missing an animation asset reference`)
       return undefined
     }
 
     const target = this.resolveTarget(component)
     if (!target) {
-      console.warn(`[AnimationSystem] Missing animation root for asset "${component.assetId}"`)
+      this.warnOnce(`root:${entity.id}:${component.assetId}`, `Failed to initialize animation: missing animation root for asset "${component.assetId}"`)
       return undefined
     }
 
@@ -200,6 +203,17 @@ export class AnimationSystem {
       this.renderer.removeMesh(entityId)
     }
     this.mixers.delete(entityId)
+    for (const key of [...this.warned]) {
+      if (key === `asset:${entityId}` || key.startsWith(`clip:${entityId}:`) || key.startsWith(`root:${entityId}:`)) {
+        this.warned.delete(key)
+      }
+    }
+  }
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key)) return
+    this.warned.add(key)
+    trionLogger.warn(message, { source: 'Animation' })
   }
 }
 

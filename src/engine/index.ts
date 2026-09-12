@@ -1,5 +1,5 @@
-export { Engine, Entity, Prefab, Scene, SceneManager, createPrefab } from './core/index.ts'
-export type { EntityMetadata, JsonValue, PrefabOverrides, SceneData, SerializedEntity } from './core/index.ts'
+export { Engine, Entity, Prefab, Scene, SceneManager, createPrefab, Logger, trionLogger, formatLogTime, DEFAULT_LOG_MAX_ENTRIES } from './core/index.ts'
+export type { EntityMetadata, JsonValue, LogEntry, LogLevel, LogOptions, LoggerOptions, PrefabOverrides, SceneData, SerializedEntity } from './core/index.ts'
 export type { Component } from './components/Component.ts'
 export { createTransform } from './components/Transform.ts'
 export type { TransformComponent, Vec3 } from './components/Transform.ts'

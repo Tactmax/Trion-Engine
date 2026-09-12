@@ -1,6 +1,7 @@
 import type { Scene } from '../core/Scene.ts'
 import type { Entity } from '../core/Entity.ts'
 import type { ScriptComponent } from '../components/Script.ts'
+import { trionLogger } from '../core/Logger.ts'
 
 interface TrackedScript {
   entity: Entity
@@ -36,17 +37,29 @@ export class ScriptSystem {
 
       if (!script.started) {
         script.started = true
-        script.onStart?.(entity)
+        try {
+          script.onStart?.(entity)
+        } catch (error) {
+          trionLogger.error(`Script error in onStart (entity ${entity.id})`, { source: 'Script', error })
+        }
       }
 
       this.trackedScripts.set(entity.id, { entity, script })
 
-      script.onUpdate?.(deltaTime, entity)
+      try {
+        script.onUpdate?.(deltaTime, entity)
+      } catch (error) {
+        trionLogger.error(`Script error in onUpdate (entity ${entity.id})`, { source: 'Script', error })
+      }
     }
 
     for (const [entityId, tracked] of this.trackedScripts.entries()) {
       if (!activeEntityIds.has(entityId)) {
-        tracked.script.onDestroy?.(tracked.entity)
+        try {
+          tracked.script.onDestroy?.(tracked.entity)
+        } catch (error) {
+          trionLogger.error(`Script error in onDestroy (entity ${entityId})`, { source: 'Script', error })
+        }
         this.trackedScripts.delete(entityId)
       }
     }
@@ -57,8 +70,12 @@ export class ScriptSystem {
    * Useful when clearing the scene.
    */
   clear(): void {
-    for (const tracked of this.trackedScripts.values()) {
-      tracked.script.onDestroy?.(tracked.entity)
+    for (const [entityId, tracked] of this.trackedScripts.entries()) {
+      try {
+        tracked.script.onDestroy?.(tracked.entity)
+      } catch (error) {
+        trionLogger.error(`Script error in onDestroy (entity ${entityId})`, { source: 'Script', error })
+      }
     }
     this.trackedScripts.clear()
   }

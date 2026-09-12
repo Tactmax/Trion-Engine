@@ -1,14 +1,14 @@
 {
   "name": "trion-engine",
   "description": "TypeScript ECS-based browser engine built on Three.js with backend-agnostic Rapier physics",
-  "private": true,
-  "version": "1.0.4",
+  "private": false,
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types scripts/verify-material-lighting.mjs && node --experimental-strip-types scripts/verify-animation.mjs && node --experimental-strip-types scripts/verify-duplication.mjs && node --experimental-strip-types scripts/verify-hierarchy.mjs"
+    "test": "node --experimental-strip-types scripts/verify-material-lighting.mjs && node --experimental-strip-types scripts/verify-animation.mjs && node --experimental-strip-types scripts/verify-duplication.mjs && node --experimental-strip-types scripts/verify-hierarchy.mjs && node --experimental-strip-types scripts/verify-console.mjs && node --experimental-strip-types scripts/verify-light-gizmo.mjs && node --experimental-strip-types scripts/verify-multi-selection.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.185.1",

@@ -64,6 +64,10 @@ export class PhysicsSystem {
   }
 
 
+  hasBackend(): boolean {
+    return this.backend !== null
+  }
+
   getGravity(): PhysVec3 | null {
     return this.backend?.getGravity() ?? null
   }

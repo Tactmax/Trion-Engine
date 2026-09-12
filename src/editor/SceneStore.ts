@@ -1,4 +1,5 @@
 import type { SceneData } from '../engine/core/SceneSerialization.ts'
+import { trionLogger } from '../engine/core/Logger.ts'
 
 export interface StoredSceneData {
   name: string
@@ -69,7 +70,7 @@ export class SceneStore {
       const payload: SceneStorePayload = { version: 1, scenes }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
     } catch (error) {
-      console.warn('[SceneStore] Failed to persist scenes:', error)
+      trionLogger.warn('Failed to persist scenes', { source: 'Editor', error })
     }
   }
 }

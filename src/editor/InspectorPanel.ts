@@ -119,8 +119,7 @@ export class InspectorPanel {
     this.element.className = 'trion-editor-panel trion-editor-inspector'
   }
 
-  render(entity: Entity | null, view: InspectorEntityViewOptions = {}): void {
-    this.currentEntity = entity
+  render(entity: Entity | null, view: InspectorEntityViewOptions = {}): void {    this.currentEntity = entity
     this.currentInputs.clear()
     this.element.replaceChildren()
     this.appendHeader()
@@ -232,6 +231,37 @@ export class InspectorPanel {
     if (!hasEditableSection) {
       this.appendMessage('No editable components on this entity.')
     }
+  }
+
+  /** Minimal summary for multi-selections. Never shows single-entity values as shared. */
+  renderMultiSelection(count: number, names: string[]): void {
+    this.currentEntity = null
+    this.currentInputs.clear()
+    this.element.replaceChildren()
+    this.appendHeader()
+    const title = document.createElement('div')
+    title.className = 'trion-editor-entity-title'
+    const name = document.createElement('div')
+    name.className = 'trion-editor-entity-name'
+    name.textContent = `${count} Entities Selected`
+    const metadata = document.createElement('div')
+    metadata.className = 'trion-editor-entity-metadata'
+    metadata.textContent = 'Multiple selection'
+    title.append(name, metadata)
+    this.element.appendChild(title)
+    const section = document.createElement('section')
+    section.className = 'trion-editor-component'
+    const heading = document.createElement('h2')
+    heading.textContent = 'Selected Entities'
+    section.appendChild(heading)
+    for (const entry of names.slice(0, 12)) {
+      section.appendChild(this.createAssetRow('Entity', entry))
+    }
+    if (names.length > 12) {
+      section.appendChild(this.createAssetRow('More', `+${names.length - 12} more`))
+    }
+    this.element.appendChild(section)
+    this.appendMessage('Move, rotate or scale to transform the whole group. Select a single entity to edit its components.')
   }
 
   private createRigidBodySection(entity: Entity, rigidBody: RigidBodyComponent): HTMLElement {

@@ -27,7 +27,9 @@ import type { TransformComponent } from '../engine/components/Transform.ts'
 import type { RigidBodyComponent } from '../engine/components/RigidBody.ts'
 import type { BoxColliderComponent } from '../engine/components/BoxCollider.ts'
 import type { SphereColliderComponent } from '../engine/components/SphereCollider.ts'
-import { HierarchyPanel } from './HierarchyPanel.ts'
+import { HierarchyPanel, type HierarchySelectModifiers } from './HierarchyPanel.ts'
+import { ConsolePanel } from './ConsolePanel.ts'
+import { trionLogger } from '../engine/core/Logger.ts'
 import { InspectorPanel, type PhysicsComponentType } from './InspectorPanel.ts'
 import { SelectionState } from './SelectionState.ts'
 import { EditorCamera } from './EditorCamera.ts'
@@ -37,24 +39,27 @@ import { LightVisualizer } from './LightVisualizer.ts'
 import { MaterialStore } from './MaterialStore.ts'
 import { EntityPicker } from './EntityPicker.ts'
 import { SelectionHighlight } from './SelectionHighlight.ts'
-import { GizmoController, type GizmoMode } from './GizmoController.ts'
+import { GizmoController, type GizmoMode, type MultiTransformEntry } from './GizmoController.ts'
 import { AssetBrowser, assetIdForFile, ASSET_DROP_MIME, PREFAB_FOLDER, prefabAssetForName, prefabNameFromAsset, sceneAssetForName, sceneNameFromAsset, materialAssetForId, materialIdFromAsset, type AssetFileInfo } from './AssetBrowser.ts'
 import { showConfirmDialog, showOptionsDialog, showPromptDialog } from './Modal.ts'
 import { PrefabStore } from './PrefabStore.ts'
 import { SceneStore } from './SceneStore.ts'
 import { cloneComponent, cloneValue, EditorHistory, type TransformData } from './EditorHistory.ts'
-import { destroyDuplicatedEntities, duplicateEntitySubtree, restoreDuplicatedEntities } from './duplicateEntity.ts'
+import { writeLocalTransform } from './multiTransform.ts'
+import { destroyDuplicatedEntities, duplicateMultipleSubtrees, filterToRoots, restoreDuplicatedEntities } from './duplicateEntity.ts'
 
 interface PrePlaySnapshot {
   sceneData: SceneData
   entitySnapshot: Map<number, { metadata: EntityMetadata; components: Component[] }>
   selectedEntityId: number | null
+  selectedEntityIds: number[]
 }
 
 interface PreEditSnapshot {
   sceneData: SceneData
   entitySnapshot: Map<number, { metadata: EntityMetadata; components: Component[] }>
   selectedEntityId: number | null
+  selectedEntityIds: number[]
   selectedAssetPath: string | null
 }
 
@@ -97,7 +102,7 @@ export class Editor {
   private readonly modifyMenu: HTMLElement
   private readonly modifyMenuButton: HTMLButtonElement
   private readonly modifyMenuPanel: HTMLElement
-  private assetsOpen = true
+  private assetsOpen = false
   private readonly status: HTMLElement
   private readonly titlebarMeta: HTMLElement
   private readonly sceneTitle: HTMLElement
@@ -120,6 +125,8 @@ export class Editor {
   private readonly selectionHighlight: SelectionHighlight
   private readonly picker: EntityPicker
   private readonly assetBrowser: AssetBrowser
+  private readonly consolePanel: ConsolePanel
+  private consoleHeight = 148
   private readonly canvas: HTMLCanvasElement
 
   private activeScene: Scene | null = null
@@ -180,9 +187,9 @@ export class Editor {
     this.lightVisualizer = new LightVisualizer(renderer, () => this.sceneManager.getActiveScene())
 
     this.hierarchy = new HierarchyPanel({
-      onSelectEntity: (entity) => {
+      onSelectEntity: (entity, modifiers) => {
         if (!this.playing) {
-          this.selectionState.select(entity.id)
+          this.handleHierarchySelect(entity.id, modifiers)
         }
       },
       getParentId: (entityId) => getParentId(this.sceneManager.getActiveScene(), entityId),
@@ -190,7 +197,12 @@ export class Editor {
         this.renameEntity(entity.id, newName)
       },
       onReparentEntity: (childId, newParentId) => {
-        this.reparentEntity(childId, newParentId)
+        this.reparentSelection(childId, newParentId)
+      },
+      onEmptyClick: () => {
+        if (!this.playing) {
+          this.selectionState.select(null)
+        }
       },
     })
 
@@ -281,12 +293,19 @@ export class Editor {
       scene: this.sceneManager.getActiveScene(),
       meshRendererSystem,
       animationSystem,
+      lightSystem,
       selectionState: this.selectionState,
       onTransformChanged: (transform) => {
         this.inspector.syncValues(transform)
       },
       onTransformCommit: (entityId, before, after) => {
         this.recordTransformChange(entityId, before, after)
+      },
+      onMultiTransformCommit: (entries) => {
+        this.recordMultiTransformChange(entries)
+      },
+      onModeChanged: (mode) => {
+        this.setGizmoMode(mode)
       },
     })
 
@@ -600,21 +619,26 @@ export class Editor {
     statusbarHint.textContent = 'R-drag Orbit • M-drag Pan • Wheel Zoom • WASD Camera • J/K/L Gizmos • F5 Play'
     statusbar.append(statusbarLabel, statusbarHint)
 
-    this.root.append(titlebar, toolbar, this.hierarchy.element, viewport, this.inspector.element, this.assetBrowser.element, statusbar)
+    this.consolePanel = new ConsolePanel()
+    this.root.style.setProperty('--trion-console-height', `${this.consoleHeight}px`)
+    this.wireConsoleResize()
+
+    this.root.append(titlebar, toolbar, this.hierarchy.element, viewport, this.inspector.element, this.consolePanel.element, this.assetBrowser.element, statusbar)
     document.body.appendChild(this.root)
 
-    this.unsubscribeSelection = this.selectionState.onChange((selectedId) => {
+    this.unsubscribeSelection = this.selectionState.onChange((selectedId, selectedIds) => {
       this.selectedEntityId = selectedId
       if (selectedId !== null) this.lastSelectedEntityId = selectedId
       const scene = this.sceneManager.getActiveScene()
+      const ids = selectedIds ?? (selectedId !== null ? [selectedId] : [])
       const entity = selectedId !== null ? scene.getEntity(selectedId) ?? null : null
 
       if (selectedId !== null && this.selectedAsset !== null) {
         this.selectedAsset = null
         this.assetBrowser.clearSelection()
       }
-      this.hierarchy.render(scene.getAllEntities(), selectedId)
-      this.renderInspectorForSelection(entity)
+      this.hierarchy.render(scene.getAllEntities(), selectedId, ids)
+      this.renderInspectorForSelection(entity, ids)
       this.updateModifyMenuState()
     })
 
@@ -697,6 +721,11 @@ export class Editor {
         this.duplicateSelectedEntity()
         return
       }
+      if ((e.code === 'Delete' || e.code === 'Backspace') && !this.playing) {
+        e.preventDefault()
+        this.deleteSelectedEntity()
+        return
+      }
 
       if (!this.playing) {
         if (e.code === 'KeyJ') {
@@ -735,7 +764,7 @@ export class Editor {
     window.addEventListener('beforeunload', this.onBeforeUnload)
 
     this.syncMaterialAssets()
-    this.toggleAssetBrowser(true)
+    this.toggleAssetBrowser(false)
     this.update()
   }
 
@@ -755,6 +784,34 @@ export class Editor {
 
   isAssetBrowserOpen(): boolean {
     return this.assetsOpen
+  }
+
+  getConsolePanel(): ConsolePanel {
+    return this.consolePanel
+  }
+
+  private wireConsoleResize(): void {
+    const handle = this.consolePanel.resizeHandle
+    handle.addEventListener('pointerdown', (startEvent) => {
+      if (this.consolePanel.isCollapsed()) this.consolePanel.setCollapsed(false)
+      const startY = startEvent.clientY
+      const startHeight = this.consoleHeight
+      handle.setPointerCapture(startEvent.pointerId)
+      const onMove = (moveEvent: PointerEvent): void => {
+        const next = Math.min(420, Math.max(80, startHeight + (startY - moveEvent.clientY)))
+        this.consoleHeight = next
+        this.root.style.setProperty('--trion-console-height', `${next}px`)
+      }
+      const onUp = (): void => {
+        handle.removeEventListener('pointermove', onMove)
+        handle.removeEventListener('pointerup', onUp)
+        handle.removeEventListener('pointercancel', onUp)
+      }
+      handle.addEventListener('pointermove', onMove)
+      handle.addEventListener('pointerup', onUp)
+      handle.addEventListener('pointercancel', onUp)
+      startEvent.preventDefault()
+    })
   }
 
   private setFileMenuOpen(open: boolean): void {
@@ -784,6 +841,31 @@ export class Editor {
   private renameSelectedEntity(): void {
     if (this.playing || this.selectedEntityId === null) return
     this.hierarchy.beginRename(this.selectedEntityId)
+  }
+
+  /**
+   * Hierarchy click routing: ctrl toggles membership, shift extends a range
+   * from the active entity through flat display order, plain clicks isolate.
+   */
+  private handleHierarchySelect(entityId: number, modifiers?: HierarchySelectModifiers): void {
+    if (modifiers?.shiftKey) {
+      const order = this.hierarchy.getDisplayOrder()
+      const anchor = this.selectedEntityId
+      const from = anchor !== null ? order.indexOf(anchor) : -1
+      const to = order.indexOf(entityId)
+      if (from !== -1 && to !== -1) {
+        const range = order.slice(Math.min(from, to), Math.max(from, to) + 1)
+        this.selectionState.setSelection(range, entityId)
+        return
+      }
+      this.selectionState.select(entityId)
+      return
+    }
+    if (modifiers?.ctrlKey) {
+      this.selectionState.toggleSelection(entityId)
+      return
+    }
+    this.selectionState.select(entityId)
   }
 
   getCamera(): THREE.PerspectiveCamera {
@@ -824,6 +906,7 @@ export class Editor {
       sceneData,
       entitySnapshot,
       selectedEntityId: this.selectedEntityId,
+      selectedEntityIds: this.selectionState.getSelectedIds(),
     }
 
     // Snapshot live material state so runtime material mutations are discarded on Stop.
@@ -862,6 +945,10 @@ export class Editor {
     this.saveSceneAsButton.disabled = true
     this.titlebarMeta.textContent = 'PLAYING'
     this.status.textContent = 'Playing...'
+    trionLogger.info('Entered Play Mode', { source: 'Play' })
+    if (this.physicsSystem && !this.physicsSystem.hasBackend()) {
+      trionLogger.warn('Physics backend not initialized yet', { source: 'Physics' })
+    }
     if (this.selectedAsset) {
       this.showSelectedAsset(false)
     } else {
@@ -922,8 +1009,11 @@ export class Editor {
     // Re-select even when the ID is unchanged (same-ID select is a no-op),
     // so the Inspector and gizmo rebind to the restored objects.
     const restoredSelectionId = snapshot.selectedEntityId
+    const restoredSelectionIds = (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined)
     this.selectionState.select(null)
-    if (restoredSelectionId !== null && scene.getEntity(restoredSelectionId)) {
+    if (restoredSelectionIds.length > 0) {
+      this.selectionState.setSelection(restoredSelectionIds, restoredSelectionId)
+    } else if (restoredSelectionId !== null && scene.getEntity(restoredSelectionId)) {
       this.selectionState.select(restoredSelectionId)
     } else if (this.selectedAsset && this.selectedEntityId === null) {
       this.showSelectedAsset(true)
@@ -939,6 +1029,7 @@ export class Editor {
     this.saveSceneAsButton.disabled = false
     this.updateModifyMenuState()
     this.titlebarMeta.textContent = 'WebGL'
+    trionLogger.info('Exited Play Mode', { source: 'Play' })
 
     this.updateHistoryButtons()
     this.hierarchySignature = ''
@@ -990,7 +1081,7 @@ export class Editor {
           t.scale.z = before.scale.z
           this.inspector.syncValues(t)
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         }
         this.syncViewportSystems()
@@ -1010,7 +1101,7 @@ export class Editor {
           t.scale.z = after.scale.z
           this.inspector.syncValues(t)
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         }
         this.syncViewportSystems()
@@ -1018,7 +1109,45 @@ export class Editor {
     })
   }
 
-  private renderInspectorForSelection(entity?: Entity | null): void {
+  private recordMultiTransformChange(entries: MultiTransformEntry[]): void {
+    if (this.playing || entries.length === 0) return
+    const scene = this.sceneManager.getActiveScene()
+    const snapshot = entries.map((entry) => ({
+      entityId: entry.entityId,
+      before: entry.before ? cloneValue(entry.before) as TransformData : null,
+      after: entry.after ? cloneValue(entry.after) as TransformData : null,
+    }))
+    const selectedIds = this.selectionState.getSelectedIds()
+    const activeId = this.selectionState.getActiveId()
+
+    this.markSceneDirty()
+    this.history.execute({
+      description: snapshot.length === 1 ? 'Change Transform' : `Change Transform (${snapshot.length} entities)`,
+      undo: () => {
+        for (const entry of snapshot) {
+          writeLocalTransform(scene, entry.entityId, entry.before ? cloneValue(entry.before) as TransformData : null)
+        }
+        this.selectionState.setSelection(selectedIds.filter((id) => scene.getEntity(id) !== undefined), activeId)
+        this.syncViewportSystems()
+      },
+      redo: () => {
+        for (const entry of snapshot) {
+          writeLocalTransform(scene, entry.entityId, entry.after ? cloneValue(entry.after) as TransformData : null)
+        }
+        this.selectionState.setSelection(selectedIds.filter((id) => scene.getEntity(id) !== undefined), activeId)
+        this.syncViewportSystems()
+      },
+    })
+  }
+
+  private renderInspectorForSelection(entity?: Entity | null, selectedIds?: number[]): void {
+    const scene = this.sceneManager.getActiveScene()
+    const ids = (selectedIds ?? this.selectionState.getSelectedIds()).filter((id) => scene.getEntity(id) !== undefined)
+    if (ids.length > 1) {
+      const names = ids.map((id) => scene.getEntity(id)?.name?.trim() || `Entity ${id}`)
+      this.inspector.renderMultiSelection(ids.length, names)
+      return
+    }
     const target = entity ?? (
       this.selectedEntityId !== null
         ? this.sceneManager.getActiveScene().getEntity(this.selectedEntityId) ?? null
@@ -1047,7 +1176,7 @@ export class Editor {
       description: `Change ${label}`,
       undo: () => {
         this.applyPhysicsSnapshot(entityId, componentType, before)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1056,7 +1185,7 @@ export class Editor {
       },
       redo: () => {
         this.applyPhysicsSnapshot(entityId, componentType, after)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1096,7 +1225,7 @@ export class Editor {
       description: `Add ${label}`,
       undo: () => {
         scene.getEntity(entityId)?.removeComponent(componentType)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1108,7 +1237,7 @@ export class Editor {
         if (target && !target.hasComponent(componentType)) {
           target.addComponent(createPhysicsComponent(componentType))
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1139,7 +1268,7 @@ export class Editor {
         if (target && !target.hasComponent(componentType)) {
           target.addComponent(cloneComponent(saved))
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1148,7 +1277,7 @@ export class Editor {
       },
       redo: () => {
         scene.getEntity(entityId)?.removeComponent(componentType)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1214,7 +1343,7 @@ export class Editor {
       description: 'Change Material',
       undo: () => {
         this.writeMaterialProps(materialId, beforeCopy)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1222,7 +1351,7 @@ export class Editor {
       },
       redo: () => {
         this.writeMaterialProps(materialId, afterCopy)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1249,7 +1378,7 @@ export class Editor {
       undo: () => {
         this.setEntityMaterial(entityId, beforeId)
         this.syncViewportSystems()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1259,7 +1388,7 @@ export class Editor {
       redo: () => {
         this.setEntityMaterial(entityId, afterId)
         this.syncViewportSystems()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1311,7 +1440,7 @@ export class Editor {
         this.materialStore.remove(id)
         this.assetBrowser.refresh()
         this.syncViewportSystems()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1324,7 +1453,7 @@ export class Editor {
         this.setEntityMaterial(entityId, id)
         this.assetBrowser.refresh()
         this.syncViewportSystems()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1416,7 +1545,7 @@ export class Editor {
       description: `Change ${label}`,
       undo: () => {
         this.applyLightSnapshot(entityId, componentType, before)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1425,7 +1554,7 @@ export class Editor {
       },
       redo: () => {
         this.applyLightSnapshot(entityId, componentType, after)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1468,7 +1597,7 @@ export class Editor {
       undo: () => {
         scene.getEntity(entityId)?.removeComponent(componentType)
         this.lightSystem?.sync()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1481,7 +1610,7 @@ export class Editor {
           target.addComponent(createLightComponent(componentType))
         }
         this.lightSystem?.sync()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1514,7 +1643,7 @@ export class Editor {
           target.addComponent(cloneComponent(saved))
         }
         this.lightSystem?.sync()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1524,7 +1653,7 @@ export class Editor {
       redo: () => {
         scene.getEntity(entityId)?.removeComponent(componentType)
         this.lightSystem?.sync()
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1545,7 +1674,7 @@ export class Editor {
       description: 'Change Animation',
       undo: () => {
         this.applyAnimationSnapshot(entityId, before)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1554,7 +1683,7 @@ export class Editor {
       },
       redo: () => {
         this.applyAnimationSnapshot(entityId, after)
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1634,7 +1763,7 @@ export class Editor {
       description: 'Add Animation',
       undo: () => {
         scene.getEntity(entityId)?.removeComponent('animation')
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1653,7 +1782,7 @@ export class Editor {
             loop: true,
           }))
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1683,7 +1812,7 @@ export class Editor {
         if (target && !target.hasComponent('animation')) {
           target.addComponent(cloneComponent(saved))
         }
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1692,7 +1821,7 @@ export class Editor {
       },
       redo: () => {
         scene.getEntity(entityId)?.removeComponent('animation')
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -1742,14 +1871,15 @@ export class Editor {
       this.hierarchySignature = ''
     }
 
-    if (this.selectedEntityId !== null && !scene.getEntity(this.selectedEntityId)) {
-      this.selectionState.select(null)
+    const validSelectedIds = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+    if (validSelectedIds.length !== this.selectionState.getCount()) {
+      this.selectionState.setSelection(validSelectedIds, this.selectionState.getActiveId())
     }
 
     const signature = entities.map((entity) => `${entity.id}:${entity.name ?? ''}:${getParentId(scene, entity.id) ?? ''}`).join('|')
     if (signature !== this.hierarchySignature) {
       this.hierarchySignature = signature
-      this.hierarchy.render(entities, this.selectedEntityId)
+      this.hierarchy.render(entities, this.selectedEntityId, this.selectionState.getSelectedIds())
     }
 
     this.updateModifyMenuState()
@@ -1785,6 +1915,7 @@ export class Editor {
     this.hierarchy.dispose()
     this.inspector.dispose()
     this.assetBrowser.dispose()
+    this.consolePanel.dispose()
     this.root.remove()
   }
 
@@ -1892,7 +2023,7 @@ export class Editor {
         try {
           result = await load
         } catch (error) {
-          console.error(`[Editor] Failed to instantiate "${asset.relativePath}":`, error)
+          trionLogger.error(`Failed to instantiate "${asset.relativePath}"`, { source: 'Editor', error })
           this.status.textContent = `Failed to load ${asset.fileName}`
           return
         } finally {
@@ -2037,6 +2168,7 @@ export class Editor {
     const prefab = this.prefabStore.toPrefab(name)
     if (!record || !prefab) {
       this.status.textContent = `Prefab "${name}" not found.`
+      trionLogger.warn(`Prefab "${name}" not found`, { source: 'Editor' })
       return
     }
     const scene = this.sceneManager.getActiveScene()
@@ -2103,6 +2235,7 @@ export class Editor {
     const prefab = this.prefabStore.toPrefab(name)
     if (!record || !prefab) {
       this.status.textContent = `Prefab "${name}" not found.`
+      trionLogger.warn(`Prefab "${name}" not found`, { source: 'Editor' })
       return
     }
     const scene = this.sceneManager.getActiveScene()
@@ -2117,6 +2250,7 @@ export class Editor {
       sceneData: scene.serialize(),
       entitySnapshot,
       selectedEntityId: this.selectedEntityId,
+      selectedEntityIds: this.selectionState.getSelectedIds(),
       selectedAssetPath: this.selectedAsset?.relativePath ?? null,
     }
 
@@ -2212,7 +2346,12 @@ export class Editor {
 
     this.selectionState.select(null)
     if (snapshot.selectedEntityId !== null && scene.getEntity(snapshot.selectedEntityId)) {
-      this.selectionState.select(snapshot.selectedEntityId)
+      const ids = (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined)
+      if (ids.length > 0) {
+        this.selectionState.setSelection(ids, snapshot.selectedEntityId)
+      } else {
+        this.selectionState.select(snapshot.selectedEntityId)
+      }
     } else if (snapshot.selectedAssetPath) {
       this.selectAsset(this.assetBrowser.selectByPath(snapshot.selectedAssetPath))
     }
@@ -2249,6 +2388,7 @@ export class Editor {
     this.refreshSceneTitle()
     this.assetBrowser.refresh()
     this.status.textContent = `Saved Scene "${this.sceneName}".`
+    trionLogger.info(`Scene saved: ${this.sceneName}`, { source: 'Scene' })
   }
 
   private async saveSceneAs(): Promise<boolean> {
@@ -2280,6 +2420,7 @@ export class Editor {
     this.refreshSceneTitle()
     this.assetBrowser.refresh()
     this.status.textContent = `Saved Scene "${name}".`
+    trionLogger.info(`Scene saved: ${name}`, { source: 'Scene' })
     return true
   }
 
@@ -2323,7 +2464,7 @@ export class Editor {
         if (!isSceneDataLike(data)) throw new Error('Not a scene file')
         return data
       } catch (error) {
-        console.error(`[Editor] Failed to open scene "${asset.relativePath}":`, error)
+        trionLogger.error(`Scene deserialization failed: "${asset.relativePath}"`, { source: 'Scene', error })
         this.status.textContent = `Failed to open ${asset.fileName}`
         return null
       }
@@ -2343,7 +2484,13 @@ export class Editor {
     this.assetBrowser.clearSelection()
     this.selectionState.select(null)
     this.history.clear()
-    scene.deserialize(data)
+    try {
+      scene.deserialize(data)
+    } catch (error) {
+      trionLogger.error('Scene deserialization failed', { source: 'Scene', error })
+      this.status.textContent = 'Failed to open scene'
+      return
+    }
     this.sceneName = name
     this.sceneDirty = false
     this.refreshSceneTitle()
@@ -2353,6 +2500,7 @@ export class Editor {
     this.syncViewportSystems()
     this.updateHistoryButtons()
     this.update()
+    trionLogger.info(name ? `Scene loaded: ${name}` : 'Scene loaded', { source: 'Scene' })
   }
 
   private async newScene(): Promise<void> {
@@ -2373,6 +2521,7 @@ export class Editor {
     this.syncViewportSystems()
     this.updateHistoryButtons()
     this.update()
+    trionLogger.info('Created new scene', { source: 'Scene' })
   }
 
   private ensureBuiltinGeometry(): void {
@@ -2461,7 +2610,7 @@ export class Editor {
 
     entity.name = next
     this.markSceneDirty()
-    if (this.selectedEntityId !== entityId) {
+    if (!this.selectionState.isSelected(entityId)) {
       this.selectionState.select(entityId)
     } else {
       this.renderInspectorForSelection()
@@ -2474,7 +2623,7 @@ export class Editor {
       undo: () => {
         const target = scene.getEntity(entityId)
         if (target) target.name = before
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -2485,7 +2634,7 @@ export class Editor {
       redo: () => {
         const target = scene.getEntity(entityId)
         if (target) target.name = next
-        if (this.selectedEntityId !== entityId) {
+        if (!this.selectionState.isSelected(entityId)) {
           this.selectionState.select(entityId)
         } else {
           this.renderInspectorForSelection()
@@ -2506,6 +2655,7 @@ export class Editor {
         : check.reason === 'descendant-parent'
           ? 'Cannot parent an entity under its own descendant.'
           : 'Cannot reparent: unknown entity.'
+      trionLogger.warn(`Invalid reparent: ${this.status.textContent}`, { source: 'Editor' })
       return
     }
     if (getParentId(scene, childId) === newParentId) return
@@ -2538,7 +2688,101 @@ export class Editor {
     })
   }
 
+  /**
+   * Reparent a hierarchy drop. When the dragged entity belongs to a
+   * multi-selection, every selected hierarchy root moves together as one
+   * logical operation; descendants of selected entities move with their
+   * parent and are never reparented twice.
+   */
+  private reparentSelection(draggedChildId: number, newParentId: number | null): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    const isMultiDrag = this.selectionState.isSelected(draggedChildId) && this.selectionState.getCount() > 1
+    if (!isMultiDrag) {
+      this.reparentEntity(draggedChildId, newParentId)
+      return
+    }
+    const candidates = this.selectionState.getSelectedIds()
+    const roots = filterToRoots(scene, candidates).filter((id) => getParentId(scene, id) !== newParentId)
+    if (roots.length === 0) return
+
+    for (const rootId of roots) {
+      const check = canReparent(scene, rootId, newParentId)
+      if (!check.ok) {
+        this.status.textContent = check.reason === 'self-parent'
+          ? 'Cannot parent an entity to itself.'
+          : check.reason === 'descendant-parent'
+            ? 'Cannot parent an entity under its own descendant.'
+            : 'Cannot reparent: unknown entity.'
+        trionLogger.warn(`Invalid reparent: ${this.status.textContent}`, { source: 'Editor' })
+        return
+      }
+    }
+
+    const moves = roots.map((rootId) => {
+      const child = scene.getEntity(rootId)
+      const beforeTransform = child?.getComponent<TransformComponent>('transform')
+      return {
+        childId: rootId,
+        beforeParent: getParentId(scene, rootId),
+        beforeLocal: beforeTransform
+          ? {
+            position: { ...beforeTransform.position },
+            rotation: { ...beforeTransform.rotation },
+            scale: { ...beforeTransform.scale },
+          } as TransformData
+          : null,
+        afterParent: newParentId,
+        afterLocal: computePreservedLocal(scene, rootId, newParentId),
+      }
+    })
+
+    for (const move of moves) {
+      this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+    }
+    this.markSceneDirty()
+    this.hierarchySignature = ''
+    this.syncViewportSystems()
+    this.renderInspectorForSelection()
+    this.update()
+
+    const names = moves.map((move) => scene.getEntity(move.childId)?.name?.trim() || `Entity ${move.childId}`)
+    this.history.execute({
+      description: moves.length === 1 ? `Reparent ${names[0]}` : `Reparent ${moves.length} entities`,
+      undo: () => {
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.beforeParent, move.beforeLocal)
+        }
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+      redo: () => {
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+        }
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+    })
+  }
+
   private applyReparentState(childId: number, parentId: number | null, local: TransformData | null): void {
+    this.setReparentState(childId, parentId, local)
+    if (!this.selectionState.isSelected(childId)) {
+      this.selectionState.select(childId)
+    } else {
+      this.renderInspectorForSelection()
+    }
+    this.hierarchySignature = ''
+    this.syncViewportSystems()
+    this.update()
+  }
+
+  private setReparentState(childId: number, parentId: number | null, local: TransformData | null): void {
     const scene = this.sceneManager.getActiveScene()
     const child = scene.getEntity(childId)
     if (!child) return
@@ -2561,49 +2805,42 @@ export class Editor {
     } else {
       child.removeComponent('transform')
     }
-    if (this.selectedEntityId !== childId) {
-      this.selectionState.select(childId)
-    } else {
-      this.renderInspectorForSelection()
-    }
-    this.hierarchySignature = ''
-    this.syncViewportSystems()
-    this.update()
   }
 
   private duplicateSelectedEntity(): void {
-    if (this.playing || this.editingPrefab !== null || this.selectedEntityId === null) return
+    if (this.playing || this.editingPrefab !== null || this.selectionState.getCount() === 0) return
     const scene = this.sceneManager.getActiveScene()
-    const sourceId = this.selectedEntityId
-    if (!scene.getEntity(sourceId)) return
+    const sourceIds = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+    if (sourceIds.length === 0) return
+    const roots = filterToRoots(scene, sourceIds)
+    if (roots.length === 0) return
 
-    const result = duplicateEntitySubtree(scene, sourceId, (base) => this.uniqueEntityName(base))
+    const result = duplicateMultipleSubtrees(scene, roots, (base) => this.uniqueEntityName(base))
     if (!result) return
     const duplicatedIds = result.records.map((record) => record.id)
-    const duplicatedRootId = result.rootId
+    const newSelection = sourceIds
+      .map((id) => result.idMap.get(id))
+      .filter((id): id is number => id !== undefined)
 
     this.markSceneDirty()
-    this.selectionState.select(duplicatedRootId)
+    this.selectionState.setSelection(newSelection, result.rootIds[result.rootIds.length - 1] ?? null)
     this.hierarchySignature = ''
     this.syncViewportSystems()
     this.update()
 
     this.history.execute({
-      description: 'Duplicate Entity',
+      description: roots.length === 1 ? 'Duplicate Entity' : `Duplicate Entities (${roots.length})`,
       undo: () => {
         destroyDuplicatedEntities(scene, duplicatedIds)
-        if (scene.getEntity(sourceId)) {
-          this.selectionState.select(sourceId)
-        } else if (this.selectedEntityId !== null && duplicatedIds.includes(this.selectedEntityId)) {
-          this.selectionState.select(null)
-        }
+        const restored = sourceIds.filter((id) => scene.getEntity(id) !== undefined)
+        this.selectionState.setSelection(restored, sourceIds[sourceIds.length - 1] ?? null)
         this.hierarchySignature = ''
         this.syncViewportSystems()
         this.update()
       },
       redo: () => {
         restoreDuplicatedEntities(scene, result.records)
-        this.selectionState.select(duplicatedRootId)
+        this.selectionState.setSelection(newSelection, result.rootIds[result.rootIds.length - 1] ?? null)
         this.hierarchySignature = ''
         this.syncViewportSystems()
         this.update()
@@ -2612,38 +2849,52 @@ export class Editor {
   }
 
   private deleteSelectedEntity(): void {
-    if (this.playing || this.selectedEntityId === null) return
+    if (this.playing || this.selectionState.getCount() === 0) return
     const scene = this.sceneManager.getActiveScene()
-    const entity = scene.getEntity(this.selectedEntityId)
-    if (!entity) return
+    const idsToDelete = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+    if (idsToDelete.length === 0) return
 
-    const idToDelete = entity.id
-    const metadata: EntityMetadata = { name: entity.name, tag: entity.tag }
-    const savedComponents = entity.getAllComponents().map((c) => cloneComponent(c))
+    const saved = idsToDelete.map((id) => {
+      const entity = scene.getEntity(id)!
+      return {
+        id,
+        metadata: { name: entity.name, tag: entity.tag } as EntityMetadata,
+        components: entity.getAllComponents().map((c) => cloneComponent(c)),
+      }
+    })
+    const label = saved.length === 1
+      ? (saved[0].metadata.name ?? `Entity ${saved[0].id}`)
+      : `${saved.length} entities`
 
     this.selectionState.select(null)
-    scene.destroyEntity(idToDelete)
+    for (const id of idsToDelete) {
+      scene.destroyEntity(id)
+    }
     this.hierarchySignature = ''
     this.markSceneDirty()
     this.update()
 
     this.history.execute({
-      description: `Delete ${metadata.name ?? `Entity ${idToDelete}`}`,
+      description: `Delete ${label}`,
       undo: () => {
-        const recreated = (scene as any).createEntityWithId(idToDelete, metadata)
-        for (const comp of savedComponents) {
-          recreated.addComponent(cloneComponent(comp))
+        for (const entry of saved) {
+          if (scene.getEntity(entry.id)) continue
+          const recreated = (scene as any).createEntityWithId(entry.id, entry.metadata)
+          for (const comp of entry.components) {
+            recreated.addComponent(cloneComponent(comp))
+          }
         }
-        this.selectionState.select(recreated.id)
+        this.selectionState.setSelection(idsToDelete.filter((id) => scene.getEntity(id) !== undefined), idsToDelete[idsToDelete.length - 1] ?? null)
         this.hierarchySignature = ''
         this.syncViewportSystems()
         this.update()
       },
       redo: () => {
-        scene.destroyEntity(idToDelete)
-        if (this.selectedEntityId === idToDelete) {
-          this.selectionState.select(null)
+        for (const id of idsToDelete) {
+          scene.destroyEntity(id)
         }
+        const remaining = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+        this.selectionState.setSelection(remaining, this.selectionState.getActiveId())
         this.hierarchySignature = ''
         this.syncViewportSystems()
         this.update()
