@@ -13,6 +13,7 @@ export interface EntityPickerOptions {
   animationSystem?: AnimationSystem
   selectionState: SelectionState
   isGizmoInteracting?: () => boolean
+  isPickable?: (entityId: number) => boolean
 }
 
 const LIGHT_COMPONENT_TYPES = ['directionalLight', 'pointLight', 'spotLight'] as const
@@ -42,6 +43,7 @@ export class EntityPicker {
   private readonly animationSystem?: AnimationSystem
   private readonly selectionState: SelectionState
   private readonly isGizmoInteracting?: () => boolean
+  private isPickable?: (entityId: number) => boolean
 
   private readonly raycaster = new THREE.Raycaster()
   private readonly pointerCoords = new THREE.Vector2()
@@ -64,6 +66,7 @@ export class EntityPicker {
     this.animationSystem = options.animationSystem
     this.selectionState = options.selectionState
     this.isGizmoInteracting = options.isGizmoInteracting
+    this.isPickable = options.isPickable
 
     this.onPointerDown = (e: PointerEvent) => {
       if (!this.enabled || e.button !== 0 || e.altKey) return
@@ -115,6 +118,7 @@ export class EntityPicker {
     const covered = new Set<number>()
 
     for (const entity of entities) {
+      if (this.isPickable && !this.isPickable(entity.id)) continue
       const target = this.animationSystem?.getTarget(entity.id)
       if (target && target.parent) {
         candidateMeshes.push(target)
@@ -137,6 +141,7 @@ export class EntityPicker {
     const proxyToEntityMap = new Map<THREE.Object3D, number>()
     for (const entity of entities) {
       if (covered.has(entity.id)) continue
+      if (this.isPickable && !this.isPickable(entity.id)) continue
       let isLight = false
       for (const lightType of LIGHT_COMPONENT_TYPES) {
         if (entity.hasComponent(lightType)) {
@@ -197,6 +202,10 @@ export class EntityPicker {
       this.isPointerDown = false
       this.gizmoActiveOnDown = false
     }
+  }
+
+  setPickableFilter(filter?: (entityId: number) => boolean): void {
+    this.isPickable = filter
   }
 
   dispose(): void {

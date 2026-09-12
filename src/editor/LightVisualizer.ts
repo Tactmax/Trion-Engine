@@ -33,6 +33,7 @@ function forwardOf(rotation: Vec3 | undefined): THREE.Vector3 {
 export class LightVisualizer {
   private readonly renderer: Renderer
   private readonly getScene: () => Scene
+  private isHidden?: (entityId: number) => boolean
   private readonly group = new THREE.Group()
   private readonly helpers = new Map<string, THREE.Object3D>()
   private visible = true
@@ -54,6 +55,10 @@ export class LightVisualizer {
     this.group.visible = visible
   }
 
+  setHiddenFilter(filter?: (entityId: number) => boolean): void {
+    this.isHidden = filter
+  }
+
   isVisible(): boolean {
     return this.visible
   }
@@ -65,6 +70,7 @@ export class LightVisualizer {
     const seen = new Set<string>()
 
     for (const entity of scene.getAllEntities()) {
+      if (this.isHidden?.(entity.id)) continue
       const world = getWorldTransform(scene, entity.id)
       const px = world.position.x
       const py = world.position.y

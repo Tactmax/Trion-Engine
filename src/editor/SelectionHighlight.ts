@@ -18,6 +18,7 @@ export class SelectionHighlight {
   private readonly meshRendererSystem: MeshRendererSystem
   private readonly selectionState: SelectionState
   private readonly animationSystem?: AnimationSystem
+  private isHidden?: (entityId: number) => boolean
 
   private readonly entries = new Map<number, HighlightEntry>()
   private visible = true
@@ -42,6 +43,7 @@ export class SelectionHighlight {
   private onSelectionChanged(selectedIds: number[]): void {
     this.removeHelpers()
     for (const id of selectedIds) {
+      if (this.isHidden?.(id)) continue
       const mesh = this.resolveSelectionObject(id)
       if (!mesh) continue
       const helper = new THREE.BoxHelper(mesh, 0x4f8fd3)
@@ -81,6 +83,10 @@ export class SelectionHighlight {
     for (const entry of this.entries.values()) {
       entry.helper.visible = visible
     }
+  }
+
+  setHiddenFilter(filter?: (entityId: number) => boolean): void {
+    this.isHidden = filter
   }
 
   private removeHelpers(): void {

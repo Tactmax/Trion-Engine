@@ -8,6 +8,7 @@ import {
   LightSystem,
   ScriptSystem,
   AnimationSystem,
+  AudioSystem,
   Input,
   PhysicsSystem,
   RapierPhysicsBackend,
@@ -133,7 +134,8 @@ const lightSystem = new LightSystem(engine.scene, renderer)
 const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSystem, renderer)
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
-const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem)
+const audioSystem = new AudioSystem(engine.scene, assets)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem, audioSystem)
 
 
 engine.onPreUpdate = () => {
@@ -151,6 +153,14 @@ engine.onPostUpdate = (deltaTime: number) => {
   meshRendererSystem.sync()
   lightSystem.sync()
   editor.update()
+  // Audio runs in both modes: runtime sources in Play Mode, editor
+  // previews in Edit Mode. Preview vs runtime state stays separate inside
+  // AudioSystem; Play/Stop toggles the runtime lane.
+  try {
+    audioSystem.update(deltaTime)
+  } catch {
+    // Web Audio is unavailable in some headless contexts; never break rendering.
+  }
 
   const activeCamera = cameraSystem.sync()
   const renderCamera = editor.isEditorViewActive() ? editor.getCamera() : activeCamera
@@ -165,6 +175,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   engine,
   renderer,
   assets,
+  audioSystem,
 }
 
 engine.start()

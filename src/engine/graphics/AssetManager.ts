@@ -18,6 +18,26 @@ export interface CreateStandardMaterialOptions extends Omit<THREE.MeshStandardMa
 }
 
 /**
+ * Decode raw audio bytes without touching the realtime AudioContext graph.
+ * A single-frame OfflineAudioContext is sufficient: only decodeAudioData is
+ * used, the context is never rendered. Falls back to a throwaway realtime
+ * context where OfflineAudioContext is unavailable (closed afterwards).
+ */
+async function decodeAudioData(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
+  if (typeof globalThis.OfflineAudioContext !== 'undefined') {
+    const offline = new globalThis.OfflineAudioContext(1, 1, 44100)
+    // decodeAudioData detaches its input, so decode a copy.
+    return offline.decodeAudioData(arrayBuffer.slice(0))
+  }
+  const realtime = new AudioContext()
+  try {
+    return await realtime.decodeAudioData(arrayBuffer.slice(0))
+  } finally {
+    await realtime.close()
+  }
+}
+
+/**
  * Owns all registered geometry, material and texture GPU resources.
  *
  * Ownership rules:
@@ -226,27 +246,54 @@ export class AssetManager {
   /**
    * Load and register an audio buffer. Ownership transfers to AssetManager
    * only after the asynchronous load succeeds.
+   *
+   * Decoding uses OfflineAudioContext so preloading never consumes one of
+   * the browser's limited realtime AudioContexts and never depends on a
+   * user gesture (autoplay policy). Fetch, body-read and decode failures
+   * are reported separately so network problems (e.g. dev server down or
+   * unreachable) are distinguishable from corrupt/unsupported audio data.
    */
   async loadAudio(id: string, url: string): Promise<AudioBuffer> {
+    let response: Response
     try {
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const arrayBuffer = await response.arrayBuffer()
-      const decodeContext = new AudioContext()
-      try {
-        const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer.slice(0))
-        this.registerAudioBuffer(id, audioBuffer)
-        trionLogger.info(`Loaded asset: ${id}`, { source: 'Asset' })
-        return audioBuffer
-      } finally {
-        await decodeContext.close()
-      }
+      response = await fetch(url)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      const wrapped = new Error(`Failed to load audio "${id}" from "${url}": ${detail}`, { cause: error })
+      const wrapped = new Error(
+        `Failed to load audio "${id}" from "${url}": network request failed (${detail}). Is the dev server running and reachable?`,
+        { cause: error },
+      )
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
+    }
+    if (!response.ok) {
+      const wrapped = new Error(`Failed to load audio "${id}" from "${url}": HTTP ${response.status}`)
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
+    }
+
+    let arrayBuffer: ArrayBuffer
+    try {
+      arrayBuffer = await response.arrayBuffer()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const wrapped = new Error(`Failed to load audio "${id}" from "${url}": failed to read response body (${detail})`, {
+        cause: error,
+      })
+      trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
+      throw wrapped
+    }
+
+    try {
+      const audioBuffer = await decodeAudioData(arrayBuffer)
+      this.registerAudioBuffer(id, audioBuffer)
+      trionLogger.info(`Loaded asset: ${id}`, { source: 'Asset' })
+      return audioBuffer
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      const wrapped = new Error(`Failed to load audio "${id}" from "${url}": unable to decode audio data (${detail})`, {
+        cause: error,
+      })
       trionLogger.error(`Failed to load asset: ${id}`, { source: 'Asset', error: wrapped })
       throw wrapped
     }

@@ -19,6 +19,7 @@ import {
   writeWorldsToLocals,
   type GroupDragSnapshot,
 } from './multiTransform.ts'
+import type { GizmoSpace } from './EditorPreferences.ts'
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 
@@ -37,6 +38,7 @@ export interface GizmoControllerOptions {
   animationSystem?: AnimationSystem
   lightSystem?: LightSystem
   selectionState: SelectionState
+  isSelectable?: (entityId: number) => boolean
   onTransformChanged?: (transform: TransformComponent) => void
   onTransformCommit?: (entityId: number, before: TransformData, after: TransformData) => void
   onMultiTransformCommit?: (entries: MultiTransformEntry[]) => void
@@ -69,6 +71,7 @@ export class GizmoController {
   private readonly animationSystem?: AnimationSystem
   private readonly lightSystem?: LightSystem
   private readonly selectionState: SelectionState
+  private isSelectable?: (entityId: number) => boolean
   private readonly controls: TransformControls
   private readonly helper: THREE.Object3D
   private readonly onTransformChanged?: (transform: TransformComponent) => void
@@ -79,6 +82,13 @@ export class GizmoController {
   private currentTarget: THREE.Object3D | null = null
   private currentEntityId: number | null = null
   private currentEntityIds: number[] = []
+  private gizmoVisible = true
+  private transformSpace: GizmoSpace = 'world'
+  private gizmoSize = 0.85
+  private snapEnabled = false
+  private snapPosition = 1
+  private snapRotationDegrees = 15
+  private snapScale = 0.1
   private dragStartTransform: TransformData | null = null
   private proxy: THREE.Group | null = null
   private multiDragStart: GroupDragSnapshot | null = null
@@ -94,6 +104,7 @@ export class GizmoController {
     this.animationSystem = options.animationSystem
     this.lightSystem = options.lightSystem
     this.selectionState = options.selectionState
+    this.isSelectable = options.isSelectable
     this.onTransformChanged = options.onTransformChanged
     this.onTransformCommit = options.onTransformCommit
     this.onMultiTransformCommit = options.onMultiTransformCommit
@@ -136,6 +147,67 @@ export class GizmoController {
     this.controls.setMode(mode)
   }
 
+  /** Show or hide the gizmo. Hidden gizmos detach and ignore selections until shown again. */
+  setGizmoVisible(visible: boolean): void {
+    if (visible === this.gizmoVisible) return
+    this.gizmoVisible = visible
+    this.helper.visible = visible
+    if (!visible) {
+      this.detach()
+      return
+    }
+    this.attachToSelection(this.selectionState.getActiveId(), this.selectionState.getSelectedIds())
+  }
+
+  isGizmoVisible(): boolean {
+    return this.gizmoVisible
+  }
+
+  /** Transform orientation space. Scale always renders local (TransformControls behavior). */
+  setTransformSpace(space: GizmoSpace): void {
+    if (space !== 'local' && space !== 'world') return
+    if (space === this.transformSpace) return
+    this.transformSpace = space
+    this.controls.setSpace(space)
+  }
+
+  getTransformSpace(): GizmoSpace {
+    return this.transformSpace
+  }
+
+  setGizmoSize(size: number): void {
+    if (!Number.isFinite(size) || size <= 0 || size === this.gizmoSize) return
+    this.gizmoSize = size
+    this.controls.setSize(size)
+  }
+
+  getGizmoSize(): number {
+    return this.gizmoSize
+  }
+
+  /**
+   * Grid-style transform snapping. Rotation is expressed in degrees and
+   * converted to the radians TransformControls expects. Disabled snapping
+   * clears all increments back to null.
+   */
+  setSnapping(enabled: boolean, position: number, rotationDegrees: number, scale: number): void {
+    this.snapEnabled = enabled
+    if (Number.isFinite(position) && position > 0) this.snapPosition = position
+    if (Number.isFinite(rotationDegrees) && rotationDegrees > 0) this.snapRotationDegrees = rotationDegrees
+    if (Number.isFinite(scale) && scale > 0) this.snapScale = scale
+    this.controls.setTranslationSnap(enabled ? this.snapPosition : null)
+    this.controls.setRotationSnap(enabled ? (this.snapRotationDegrees * Math.PI) / 180 : null)
+    this.controls.setScaleSnap(enabled ? this.snapScale : null)
+  }
+
+  isSnappingEnabled(): boolean {
+    return this.snapEnabled
+  }
+
+  getSnapIncrements(): { position: number; rotationDegrees: number; scale: number } {
+    return { position: this.snapPosition, rotationDegrees: this.snapRotationDegrees, scale: this.snapScale }
+  }
+
   /** The runtime object the gizmo is currently driving, if any. */
   getTarget(): THREE.Object3D | null {
     return this.currentTarget
@@ -174,7 +246,13 @@ export class GizmoController {
   }
 
   attachToSelection(activeId: number | null, selectedIds?: number[]): void {
-    const ids = (selectedIds ?? (activeId === null ? [] : [activeId])).filter((id) => this.scene.getEntity(id) !== undefined)
+    if (!this.gizmoVisible) {
+      this.detach()
+      return
+    }
+    const ids = (selectedIds ?? (activeId === null ? [] : [activeId]))
+      .filter((id) => this.scene.getEntity(id) !== undefined)
+      .filter((id) => this.isSelectable?.(id) ?? true)
     if (ids.length === 0) {
       this.detach()
       return
@@ -205,6 +283,27 @@ export class GizmoController {
     this.controls.detach()
     if (this.proxy) {
       this.renderer.remove(this.proxy)
+    }
+  }
+
+  setSelectableFilter(filter?: (entityId: number) => boolean): void {
+    this.isSelectable = filter
+    if (this.currentEntityId !== null && !(this.isSelectable?.(this.currentEntityId) ?? true)) {
+      this.detach()
+      return
+    }
+    if (this.currentEntityIds.length > 0) {
+      const next = this.currentEntityIds.filter((id) => this.isSelectable?.(id) ?? true)
+      if (next.length !== this.currentEntityIds.length) {
+        if (next.length === 0) {
+          this.detach()
+        } else {
+          this.currentEntityIds = next
+          if (this.currentEntityId !== null && !next.includes(this.currentEntityId)) {
+            this.currentEntityId = next[next.length - 1]
+          }
+        }
+      }
     }
   }
 
@@ -413,7 +512,9 @@ export class GizmoController {
     if (this.isMultiAttached()) {
       // Keep the pivot on the group while idle; never fight an active drag.
       if (this.controls.dragging) return
-      const valid = this.currentEntityIds.filter((id) => this.scene.getEntity(id) !== undefined)
+      const valid = this.currentEntityIds
+        .filter((id) => this.scene.getEntity(id) !== undefined)
+        .filter((id) => this.isSelectable?.(id) ?? true)
       if (valid.length <= 1) {
         if (valid.length === 1) {
           this.attachSingle(valid[0])
@@ -428,6 +529,10 @@ export class GizmoController {
     }
     // Re-resolve so animated entities keep tracking their animation target.
     if (this.currentEntityId !== null) {
+      if (!(this.isSelectable?.(this.currentEntityId) ?? true)) {
+        this.detach()
+        return
+      }
       const object = this.resolveSelectionObject(this.currentEntityId)
       if (!object) {
         this.detach()

@@ -1,6 +1,6 @@
 import { assetPaths } from 'virtual:trion-asset-manifest'
 
-export type AssetKind = 'model' | 'texture' | 'data' | 'prefab' | 'scene' | 'material'
+export type AssetKind = 'model' | 'texture' | 'audio' | 'data' | 'prefab' | 'scene' | 'material'
 
 export interface AssetFileInfo {
   relativePath: string
@@ -25,6 +25,9 @@ const SUPPORTED_EXTENSIONS: Record<string, AssetKind> = {
   jpg: 'texture',
   jpeg: 'texture',
   webp: 'texture',
+  mp3: 'audio',
+  wav: 'audio',
+  ogg: 'audio',
   json: 'data',
   scene: 'scene',
   mat: 'material',
@@ -120,6 +123,7 @@ export function materialIdFromAsset(asset: AssetFileInfo): string | null {
 function iconForAsset(asset: AssetFileInfo): string {
   if (asset.kind === 'model') return '◈'
   if (asset.kind === 'texture') return '▦'
+  if (asset.kind === 'audio') return '♪'
   if (asset.kind === 'prefab') return '⬢'
   if (asset.kind === 'scene') return '▤'
   if (asset.kind === 'material') return '◐'
@@ -178,6 +182,14 @@ export class AssetBrowser {
 
   getSelectedAsset(): AssetFileInfo | null {
     return this.assets.find((a) => a.relativePath === this.selectedPath) ?? null
+  }
+
+  getAllAssets(): AssetFileInfo[] {
+    return [...this.assets]
+  }
+
+  listAudioAssets(): AssetFileInfo[] {
+    return this.assets.filter((a) => a.kind === 'audio')
   }
 
   findAsset(relativePath: string): AssetFileInfo | null {
@@ -317,6 +329,7 @@ export class AssetBrowser {
       if (asset.kind === 'prefab') button.classList.add('is-prefab')
       if (asset.kind === 'scene') button.classList.add('is-scene')
       if (asset.kind === 'material') button.classList.add('is-material')
+      if (asset.kind === 'audio') button.classList.add('is-audio')
       button.classList.toggle('is-selected', asset.relativePath === this.selectedPath)
       const icon = document.createElement('span')
       icon.className = 'trion-editor-asset-icon'
@@ -326,7 +339,7 @@ export class AssetBrowser {
       label.textContent = asset.fileName
       button.append(icon, label)
       button.title = asset.relativePath
-      if ((asset.kind === 'model' || asset.kind === 'prefab') && !this.disabled) {
+      if ((asset.kind === 'model' || asset.kind === 'prefab' || asset.kind === 'audio') && !this.disabled) {
         button.draggable = true
         button.addEventListener('dragstart', (e) => {
           if (!e.dataTransfer) return
@@ -341,7 +354,7 @@ export class AssetBrowser {
         this.options.onSelectAsset(asset)
       })
       button.addEventListener('dblclick', () => {
-        if (this.disabled || (asset.kind !== 'model' && asset.kind !== 'prefab' && asset.kind !== 'scene' && asset.kind !== 'material')) return
+        if (this.disabled || (asset.kind !== 'model' && asset.kind !== 'prefab' && asset.kind !== 'scene' && asset.kind !== 'material' && asset.kind !== 'audio')) return
         if (this.selectedPath !== asset.relativePath) {
           this.selectedPath = asset.relativePath
           this.render()
@@ -365,6 +378,8 @@ export class AssetBrowser {
     if (selected) {
       if ((selected.kind === 'model' || selected.kind === 'prefab') && !this.disabled) {
         status.textContent = `${selected.fileName} — double-click or drag into viewport`
+      } else if (selected.kind === 'audio' && !this.disabled) {
+        status.textContent = `${selected.fileName} — double-click or drag into viewport for an Audio Source`
       } else if (selected.kind === 'scene' && !this.disabled) {
         status.textContent = `${selected.fileName} — double-click to open`
       } else if (selected.kind === 'material' && !this.disabled) {

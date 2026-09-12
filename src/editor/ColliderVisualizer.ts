@@ -25,6 +25,7 @@ import type { Renderer } from '../engine/graphics/Renderer.ts'
 export class ColliderVisualizer {
   private readonly renderer: Renderer
   private readonly getScene: () => Scene
+  private isHidden?: (entityId: number) => boolean
   private readonly group = new THREE.Group()
   private readonly helpers = new Map<string, THREE.LineSegments>()
 
@@ -56,6 +57,10 @@ export class ColliderVisualizer {
     this.group.visible = visible
   }
 
+  setHiddenFilter(filter?: (entityId: number) => boolean): void {
+    this.isHidden = filter
+  }
+
   isVisible(): boolean {
     return this.visible
   }
@@ -68,6 +73,7 @@ export class ColliderVisualizer {
     const seen = new Set<string>()
 
     for (const entity of scene.getAllEntities()) {
+      if (this.isHidden?.(entity.id)) continue
       const world = getWorldTransform(scene, entity.id)
       const position = world.position
       const rotation = world.rotation

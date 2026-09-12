@@ -56,6 +56,17 @@ export interface InspectorPanelOptions {
   onAnimationPreviewToggle?: (entityId: number, playing: boolean) => void
   getAnimationClips?: (entityId: number) => string[]
   getAnimationSource?: (entityId: number) => { assetId: string; clips: string[] } | null
+  onAudioCommit?: (
+    entityId: number,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) => void
+  onAddAudioComponent?: (entityId: number) => void
+  onRemoveAudioComponent?: (entityId: number) => void
+  onAudioPreviewToggle?: (entityId: number, playing: boolean) => void
+  onAudioStopPreview?: (entityId: number) => void
+  getAudioAssets?: () => Array<{ id: string; label: string }>
+  isAudioPreviewing?: (entityId: number) => boolean
 }
 
 export interface InspectorAssetViewOptions {
@@ -212,6 +223,11 @@ export class InspectorPanel {
       hasEditableSection = true
       this.element.appendChild(this.createAnimationSection(entity, animation, canEdit))
     }
+    const audio = entity.getComponent('audio') as Record<string, unknown> | undefined
+    if (audio) {
+      hasEditableSection = true
+      this.element.appendChild(this.createAudioSection(entity, audio, canEdit))
+    }
     if (view.canEditComponents !== false) {
       const addSection = this.createAddComponentSection(entity, {
         hasRigidBody: rigidBody !== undefined,
@@ -222,6 +238,7 @@ export class InspectorPanel {
         hasSpotLight: spotLight !== undefined,
         hasAnimation: animation !== undefined,
         canAddAnimation: animation === undefined && (this.options.getAnimationSource?.(entity.id) ?? null) !== null,
+        hasAudio: audio !== undefined,
       })
       if (addSection) {
         hasEditableSection = true
@@ -459,6 +476,7 @@ export class InspectorPanel {
       hasSpotLight: boolean
       hasAnimation: boolean
       canAddAnimation: boolean
+      hasAudio: boolean
     },
   ): HTMLElement | null {
     const physicsMissing: Array<{ type: PhysicsComponentType; label: string }> = []
@@ -469,7 +487,7 @@ export class InspectorPanel {
     if (!presence.hasDirectionalLight) lightMissing.push({ type: 'directionalLight', label: 'Add Directional Light' })
     if (!presence.hasPointLight) lightMissing.push({ type: 'pointLight', label: 'Add Point Light' })
     if (!presence.hasSpotLight) lightMissing.push({ type: 'spotLight', label: 'Add Spot Light' })
-    if (physicsMissing.length === 0 && lightMissing.length === 0 && (presence.hasAnimation || !presence.canAddAnimation)) return null
+    if (physicsMissing.length === 0 && lightMissing.length === 0 && (presence.hasAnimation || !presence.canAddAnimation) && presence.hasAudio) return null
 
     const section = document.createElement('section')
     section.className = 'trion-editor-component'
@@ -505,6 +523,16 @@ export class InspectorPanel {
       button.textContent = 'Add Animation'
       button.addEventListener('click', () => {
         this.options.onAddAnimationComponent?.(entity.id)
+      })
+      row.appendChild(button)
+    }
+    if (!presence.hasAudio) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'trion-editor-button'
+      button.textContent = 'Add Audio Source'
+      button.addEventListener('click', () => {
+        this.options.onAddAudioComponent?.(entity.id)
       })
       row.appendChild(button)
     }
@@ -1082,6 +1110,256 @@ export class InspectorPanel {
     return field
   }
 
+  private snapshotAudio(component: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    for (const key of ['assetId', 'volume', 'pitch', 'loop', 'playOnStart', 'muted', 'spatial', 'minDistance', 'maxDistance']) {
+      out[key] = component[key]
+    }
+    return JSON.parse(JSON.stringify(out)) as Record<string, unknown>
+  }
+
+  private createAudioSection(entity: Entity, audio: Record<string, unknown>, canEdit: boolean): HTMLElement {
+    const section = document.createElement('section')
+    section.className = 'trion-editor-component'
+    const heading = document.createElement('h2')
+    heading.textContent = 'Audio Source'
+    section.appendChild(heading)
+
+    section.appendChild(this.createAudioClipField(audio, canEdit))
+    section.appendChild(this.createAudioNumberField(audio, 'volume', 'Volume', { min: '0', max: '1', step: '0.01' }, canEdit))
+    section.appendChild(this.createAudioNumberField(audio, 'pitch', 'Pitch', { min: '0.1', max: '4', step: '0.1' }, canEdit))
+    section.appendChild(this.createAudioCheckboxField(audio, 'loop', 'Loop', canEdit))
+    section.appendChild(this.createAudioCheckboxField(audio, 'playOnStart', 'Play On Start', canEdit))
+    section.appendChild(this.createAudioCheckboxField(audio, 'muted', 'Mute', canEdit))
+    section.appendChild(this.createAudioSpatialField(audio, canEdit))
+    section.appendChild(this.createAudioNumberField(audio, 'minDistance', 'Min Distance', { min: '0', step: '0.1' }, canEdit))
+    section.appendChild(this.createAudioNumberField(audio, 'maxDistance', 'Max Distance', { min: '0', step: '0.1' }, canEdit))
+
+    if (canEdit) {
+      const previewRow = document.createElement('div')
+      previewRow.className = 'trion-editor-asset-action-row'
+      const previewing = this.options.isAudioPreviewing?.(entity.id) ?? false
+      const playButton = document.createElement('button')
+      playButton.type = 'button'
+      playButton.className = 'trion-editor-button is-primary'
+      playButton.textContent = previewing ? '■ Previewing…' : '▶ Preview'
+      playButton.title = 'Play this clip in Edit Mode without entering Play Mode (no history entry)'
+      const assetId = typeof audio.assetId === 'string' ? audio.assetId : undefined
+      playButton.disabled = !assetId
+      playButton.addEventListener('click', () => this.options.onAudioPreviewToggle?.(entity.id, true))
+      const stopButton = document.createElement('button')
+      stopButton.type = 'button'
+      stopButton.className = 'trion-editor-button'
+      stopButton.textContent = '⏹ Stop Preview'
+      stopButton.title = 'Stop the editor preview (no history entry)'
+      stopButton.disabled = !previewing
+      stopButton.addEventListener('click', () => this.options.onAudioStopPreview?.(entity.id))
+      previewRow.append(playButton, stopButton)
+      section.appendChild(previewRow)
+
+      const hint = document.createElement('p')
+      hint.className = 'trion-editor-asset-hint'
+      hint.textContent = 'Preview plays in Edit Mode only and never touches Play Mode state. Use Play On Start for runtime playback.'
+      section.appendChild(hint)
+
+      section.appendChild(this.createRemoveComponentRow('Remove Audio Source', () => {
+        this.options.onRemoveAudioComponent?.(entity.id)
+      }))
+    }
+    return section
+  }
+
+  private createAudioClipField(audio: Record<string, unknown>, canEdit: boolean): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = 'Clip'
+    const select = document.createElement('select')
+    select.className = 'trion-editor-select'
+    select.setAttribute('aria-label', 'Audio clip')
+    select.disabled = !canEdit
+    const assets = this.options.getAudioAssets?.() ?? []
+    const none = document.createElement('option')
+    none.value = ''
+    none.textContent = assets.length === 0 ? 'No audio assets' : 'None'
+    select.appendChild(none)
+    const seen = new Set<string>([''])
+    for (const entry of assets) {
+      if (seen.has(entry.id)) continue
+      seen.add(entry.id)
+      const option = document.createElement('option')
+      option.value = entry.id
+      option.textContent = entry.label
+      select.appendChild(option)
+    }
+    const currentId = typeof audio.assetId === 'string' ? audio.assetId : ''
+    if (currentId && !seen.has(currentId)) {
+      const option = document.createElement('option')
+      option.value = currentId
+      option.textContent = `${currentId} (missing)`
+      select.appendChild(option)
+    }
+    select.value = currentId
+
+    let start: Record<string, unknown> | null = null
+    select.addEventListener('focus', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (current) start = this.snapshotAudio(current)
+    })
+    select.addEventListener('change', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (!current) return
+      if (!select.value) {
+        delete current.assetId
+      } else {
+        current.assetId = select.value
+      }
+      if (this.currentEntity && start) {
+        const after = this.snapshotAudio(current)
+        if (JSON.stringify(start) !== JSON.stringify(after)) {
+          this.options.onAudioCommit?.(this.currentEntity.id, start, after)
+          start = after
+        }
+      }
+    })
+    field.appendChild(select)
+    return field
+  }
+
+  private createAudioCheckboxField(
+    audio: Record<string, unknown>,
+    key: string,
+    label: string,
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.setAttribute('aria-label', `Audio ${label}`)
+    input.checked = audio[key] === true
+    input.disabled = !canEdit
+    let start: Record<string, unknown> | null = null
+    input.addEventListener('focus', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (current) start = this.snapshotAudio(current)
+    })
+    input.addEventListener('change', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (!current) return
+      if (!start) start = this.snapshotAudio(current)
+      current[key] = input.checked
+      if (this.currentEntity && start) {
+        const after = this.snapshotAudio(current)
+        if (JSON.stringify(start) !== JSON.stringify(after)) {
+          this.options.onAudioCommit?.(this.currentEntity.id, start, after)
+          start = after
+        }
+      }
+    })
+    field.appendChild(input)
+    return field
+  }
+
+  private createAudioSpatialField(audio: Record<string, unknown>, canEdit: boolean): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = 'Spatial'
+    const select = document.createElement('select')
+    select.className = 'trion-editor-select'
+    select.setAttribute('aria-label', 'Audio spatial mode')
+    select.disabled = !canEdit
+    for (const [value, label] of [['2d', '2D'], ['3d', '3D']] as const) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = label
+      select.appendChild(option)
+    }
+    select.value = audio.spatial === true ? '3d' : '2d'
+    let start: Record<string, unknown> | null = null
+    select.addEventListener('focus', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (current) start = this.snapshotAudio(current)
+    })
+    select.addEventListener('change', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (!current) return
+      current.spatial = select.value === '3d'
+      if (this.currentEntity && start) {
+        const after = this.snapshotAudio(current)
+        if (JSON.stringify(start) !== JSON.stringify(after)) {
+          this.options.onAudioCommit?.(this.currentEntity.id, start, after)
+          start = after
+        }
+      }
+    })
+    field.appendChild(select)
+    return field
+  }
+
+  private createAudioNumberField(
+    audio: Record<string, unknown>,
+    key: string,
+    label: string,
+    options: { min?: string; max?: string; step?: string },
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const input = document.createElement('input')
+    input.type = 'number'
+    if (options.min !== undefined) input.min = options.min
+    if (options.max !== undefined) input.max = options.max
+    if (options.step !== undefined) input.step = options.step
+    input.inputMode = 'decimal'
+    input.setAttribute('aria-label', `Audio ${label}`)
+    const raw = audio[key]
+    input.value = typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : ''
+    input.disabled = !canEdit
+    let start: Record<string, unknown> | null = null
+    input.addEventListener('focus', () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (current) start = this.snapshotAudio(current)
+    })
+    input.addEventListener('input', () => {
+      const value = input.valueAsNumber
+      if (Number.isFinite(value)) {
+        audio[key] = value
+      }
+    })
+    const commit = () => {
+      const current = this.currentEntity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (this.currentEntity && current && start) {
+        this.clampAudioNumber(current, key)
+        input.value = typeof current[key] === 'number' ? String(current[key]) : ''
+        const after = this.snapshotAudio(current)
+        if (JSON.stringify(start) !== JSON.stringify(after)) {
+          this.options.onAudioCommit?.(this.currentEntity.id, start, after)
+          start = after
+        }
+      }
+    }
+    input.addEventListener('change', commit)
+    input.addEventListener('blur', commit)
+    field.appendChild(input)
+    return field
+  }
+
+  private clampAudioNumber(record: Record<string, unknown>, key: string): void {
+    const value = record[key]
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      if (key === 'volume') record[key] = 1
+      else if (key === 'pitch') record[key] = 1
+      else if (key === 'minDistance') record[key] = 1
+      else if (key === 'maxDistance') record[key] = 50
+      return
+    }
+    if (key === 'volume') record[key] = Math.min(1, Math.max(0, value))
+    else if (key === 'pitch') record[key] = Math.min(4, Math.max(0.1, value))
+    else if (key === 'minDistance' || key === 'maxDistance') record[key] = Math.max(0, value)
+  }
+
   syncValues(transform: TransformComponent): void {
     const fields = [
       { prefix: 'position', vec: transform.position },
@@ -1128,22 +1406,26 @@ export class InspectorPanel {
     section.appendChild(heading)
     section.append(
       this.createAssetRow('File', asset.fileName),
-      this.createAssetRow('Type', asset.kind === 'model' ? `3D Model (.${asset.extension})` : asset.kind === 'texture' ? `Texture (.${asset.extension})` : `Data (.${asset.extension})`),
+      this.createAssetRow('Type', asset.kind === 'model' ? `3D Model (.${asset.extension})` : asset.kind === 'texture' ? `Texture (.${asset.extension})` : asset.kind === 'audio' ? `Audio (.${asset.extension})` : `Data (.${asset.extension})`),
       this.createAssetRow('Path', asset.relativePath),
     )
     this.element.appendChild(section)
 
-    if (asset.kind === 'model') {
+    if (asset.kind === 'model' || asset.kind === 'audio') {
       const hint = document.createElement('p')
       hint.className = 'trion-editor-asset-hint'
-      hint.textContent = view.canInstantiate
-        ? 'Double-click or drag into the viewport to add to the scene.'
-        : 'Scene editing is currently disabled.'
+      hint.textContent = asset.kind === 'audio'
+        ? (view.canInstantiate
+          ? 'Double-click or drag into the viewport to add an Audio Source with this clip.'
+          : 'Scene editing is currently disabled.')
+        : (view.canInstantiate
+          ? 'Double-click or drag into the viewport to add to the scene.'
+          : 'Scene editing is currently disabled.')
       this.element.appendChild(hint)
       const action = document.createElement('button')
       action.type = 'button'
       action.className = 'trion-editor-button is-primary'
-      action.textContent = 'Add to Scene'
+      action.textContent = asset.kind === 'audio' ? 'Add Audio Source' : 'Add to Scene'
       action.disabled = !view.canInstantiate
       action.addEventListener('click', () => view.onInstantiate?.(asset))
       const row = document.createElement('div')

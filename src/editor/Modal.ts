@@ -25,13 +25,14 @@ export interface OptionsDialogOptions {
   actions: OptionsDialogAction[]
 }
 
-interface DialogShell {
+export interface DialogShell {
   overlay: HTMLElement
+  dialog: HTMLElement
   body: HTMLElement
   close: () => void
 }
 
-function createDialogShell(parent: HTMLElement, title: string): DialogShell {
+export function createDialogShell(parent: HTMLElement, title: string): DialogShell {
   const overlay = document.createElement('div')
   overlay.className = 'trion-editor-modal-overlay'
   const dialog = document.createElement('div')
@@ -44,7 +45,7 @@ function createDialogShell(parent: HTMLElement, title: string): DialogShell {
   dialog.append(heading, body)
   overlay.appendChild(dialog)
   parent.appendChild(overlay)
-  return { overlay, body, close: () => overlay.remove() }
+  return { overlay, dialog, body, close: () => overlay.remove() }
 }
 
 function appendDialogActions(body: HTMLElement, confirmText: string, danger: boolean, onConfirm: () => void, onCancel: () => void): void {

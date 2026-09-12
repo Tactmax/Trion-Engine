@@ -304,6 +304,20 @@ canvas {
   font-size: 10px;
 }
 
+.trion-editor-button.is-preferences {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  line-height: 1;
+}
+
+.trion-editor-button.is-preferences svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 .trion-editor-button.is-primary {
   background: #3d6f9e;
   border-color: #2c5e8b;
@@ -368,6 +382,8 @@ canvas {
 .trion-editor-entity-list {
   display: grid;
   gap: 1px;
+  align-content: start;
+  grid-auto-rows: min-content;
   list-style: none;
 }
 
@@ -405,6 +421,8 @@ canvas {
 .trion-editor-entity-children {
   display: grid;
   gap: 1px;
+  align-content: start;
+  grid-auto-rows: min-content;
   margin: 0 0 0 12px;
   padding-left: 4px;
   border-left: 1px solid #2e2e2e;
@@ -415,9 +433,167 @@ canvas {
   min-width: 0;
 }
 
-.trion-editor-entity.is-drop-target {
+.trion-editor-entity-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trion-editor-entity-row .trion-editor-entity {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.trion-editor-entity-visibility,
+.trion-editor-entity-lock {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--editor-muted);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.trion-editor-entity-visibility:hover,
+.trion-editor-entity-lock:hover {
+  background: #3a3a3a !important;
+  color: #d2d2d2;
+  opacity: 1;
+}
+
+.trion-editor-entity-visibility.is-hidden {
+  color: var(--editor-muted);
+  opacity: 0.9;
+}
+
+.trion-editor-entity-lock.is-locked {
+  color: #c9c9c9;
+  opacity: 0.95;
+}
+
+.trion-editor-entity-item.is-effectively-hidden > .trion-editor-entity-row > .trion-editor-entity {
+  opacity: 0.45;
+}
+
+.trion-editor-entity-item.is-locked > .trion-editor-entity-row > .trion-editor-entity {
+  color: #b9b9b9;
+}
+
+.trion-editor-entity.is-drop-target,
+.trion-editor-entity-item.is-drop-target > .trion-editor-entity-row > .trion-editor-entity {
   outline: 1px solid var(--editor-accent);
   background: #2c4a63 !important;
+}
+
+.trion-editor-entity-list.is-root-drop-target {
+  outline: 1px dashed var(--editor-accent);
+  outline-offset: -1px;
+  background: rgb(79 143 211 / 8%);
+}
+
+.trion-editor-hierarchy-context {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 4px;
+  background: #383838;
+  border: 1px solid #171717;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  font: 12px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.trion-editor-hierarchy-context .trion-editor-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: #d6d6d6;
+  text-align: left;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.trion-editor-hierarchy-context .trion-editor-menu-item:hover:not(:disabled) {
+  background: #454545;
+  border-color: #5a5a5a;
+}
+
+.trion-editor-hierarchy-context .trion-editor-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.trion-editor-hierarchy-context .trion-editor-menu-shortcut {
+  color: #979797;
+  font-size: 10px;
+}
+
+.trion-editor-entity.is-group {
+  color: #9cc8e8;
+  font-weight: 600;
+}
+
+.trion-editor-entity.is-group::before {
+  content: '▤';
+  font-size: 10px;
+  top: 5px;
+  color: #9cc8e8;
+}
+
+.trion-editor-entity-item.is-group > .trion-editor-entity-row > .trion-editor-entity {
+  color: #9cc8e8;
+}
+
+.trion-editor-hierarchy {
+  display: flex;
+  flex-direction: column;
+}
+
+.trion-editor-hierarchy-search {
+  margin: 0 8px 6px;
+  padding: 4px 6px;
+  color: #ededed;
+  background: #1e1e1e;
+  border: 1px solid #1c1c1c;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+.trion-editor-hierarchy-search::placeholder {
+  color: var(--editor-muted);
+}
+
+.trion-editor-hierarchy .trion-editor-entity-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.trion-editor-hierarchy-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid #1a1a1a;
+}
+
+.trion-editor-hierarchy-add {
+  flex: 1;
 }
 
 .trion-editor-rename {
@@ -452,11 +628,15 @@ canvas {
   z-index: 1;
   pointer-events: none;
   content: '';
-  opacity: 0.09;
+  opacity: var(--editor-bg-grid-opacity, 0.09);
   background-image:
     linear-gradient(to right, rgb(190 202 222 / 38%) 1px, transparent 1px),
     linear-gradient(to bottom, rgb(190 202 222 / 38%) 1px, transparent 1px);
-  background-size: 36px 36px;
+  background-size: var(--editor-bg-grid-size, 36px) var(--editor-bg-grid-size, 36px);
+}
+
+.trion-editor-viewport.is-bg-grid-hidden::after {
+  display: none;
 }
 
 .trion-editor-viewport-toolbar {
@@ -884,6 +1064,42 @@ canvas {
 
 .trion-editor-modal-actions.is-start {
   justify-content: flex-start;
+}
+
+.trion-editor-modal.is-wide {
+  width: 360px;
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.trion-editor-modal.is-wide .trion-editor-modal-body {
+  overflow-y: auto;
+}
+
+.trion-editor-prefs-section {
+  display: grid;
+  gap: 6px;
+}
+
+.trion-editor-prefs-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--editor-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.trion-editor-prefs-check input {
+  width: auto;
+  accent-color: var(--editor-accent);
+}
+
+.trion-editor-prefs-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .trion-editor-statusbar {

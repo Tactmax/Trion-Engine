@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types scripts/verify-material-lighting.mjs && node --experimental-strip-types scripts/verify-animation.mjs && node --experimental-strip-types scripts/verify-duplication.mjs && node --experimental-strip-types scripts/verify-hierarchy.mjs && node --experimental-strip-types scripts/verify-console.mjs && node --experimental-strip-types scripts/verify-light-gizmo.mjs && node --experimental-strip-types scripts/verify-multi-selection.mjs"
+    "test": "node --experimental-strip-types scripts/verify-material-lighting.mjs && node --experimental-strip-types scripts/verify-animation.mjs && node --experimental-strip-types scripts/verify-duplication.mjs && node --experimental-strip-types scripts/verify-hierarchy.mjs && node --experimental-strip-types scripts/verify-console.mjs && node --experimental-strip-types scripts/verify-light-gizmo.mjs && node --experimental-strip-types scripts/verify-multi-selection.mjs && node --experimental-strip-types scripts/verify-visibility-lock.mjs && node --experimental-strip-types scripts/verify-preferences.mjs && node --experimental-strip-types scripts/verify-audio.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.185.1",

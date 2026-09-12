@@ -1,8 +1,8 @@
 import type * as THREE from 'three'
 import { BoxGeometry, SphereGeometry } from 'three'
 import type { Component, Entity, EntityMetadata, Scene, SceneData, SceneManager } from '../engine/index.ts'
-import { createAnimation, createBoxCollider, createMeshRenderer, createRigidBody, createSphereCollider, createTransform } from '../engine/index.ts'
-import { applyParentLink, canReparent, computePreservedLocal, getParentId } from '../engine/index.ts'
+import { createAnimation, createAudio, createBoxCollider, createMeshRenderer, createRigidBody, createSphereCollider, createTransform } from '../engine/index.ts'
+import { applyParentLink, canReparent, computePreservedLocal, getChildren, getParentId } from '../engine/index.ts'
 import { createLightComponent, type LightComponentType } from '../engine/components/Light.ts'
 import type { MeshRendererComponent } from '../engine/components/MeshRenderer.ts'
 import {
@@ -22,12 +22,14 @@ import type { Renderer } from '../engine/graphics/Renderer.ts'
 import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.ts'
 import type { LightSystem } from '../engine/graphics/LightSystem.ts'
 import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
+import type { AudioSystem } from '../engine/systems/AudioSystem.ts'
 import type { PhysicsSystem } from '../engine/physics/PhysicsSystem.ts'
 import type { TransformComponent } from '../engine/components/Transform.ts'
 import type { RigidBodyComponent } from '../engine/components/RigidBody.ts'
 import type { BoxColliderComponent } from '../engine/components/BoxCollider.ts'
 import type { SphereColliderComponent } from '../engine/components/SphereCollider.ts'
 import { HierarchyPanel, type HierarchySelectModifiers } from './HierarchyPanel.ts'
+import { GROUP_BASE_NAME, isGroupEntity } from './groups.ts'
 import { ConsolePanel } from './ConsolePanel.ts'
 import { trionLogger } from '../engine/core/Logger.ts'
 import { InspectorPanel, type PhysicsComponentType } from './InspectorPanel.ts'
@@ -44,7 +46,10 @@ import { AssetBrowser, assetIdForFile, ASSET_DROP_MIME, PREFAB_FOLDER, prefabAss
 import { showConfirmDialog, showOptionsDialog, showPromptDialog } from './Modal.ts'
 import { PrefabStore } from './PrefabStore.ts'
 import { SceneStore } from './SceneStore.ts'
+import { EditorPreferences } from './EditorPreferences.ts'
+import { PreferencesPanel } from './PreferencesPanel.ts'
 import { cloneComponent, cloneValue, EditorHistory, type TransformData } from './EditorHistory.ts'
+import { EntityEditorState } from './EntityEditorState.ts'
 import { writeLocalTransform } from './multiTransform.ts'
 import { destroyDuplicatedEntities, duplicateMultipleSubtrees, filterToRoots, restoreDuplicatedEntities } from './duplicateEntity.ts'
 
@@ -61,9 +66,11 @@ interface PreEditSnapshot {
   selectedEntityId: number | null
   selectedEntityIds: number[]
   selectedAssetPath: string | null
+  editorHidden: number[]
+  editorLocked: number[]
 }
 
-export type CreateEntityKind = 'empty' | 'cube' | 'sphere' | 'directionalLight' | 'pointLight' | 'spotLight'
+export type CreateEntityKind = 'empty' | 'cube' | 'sphere' | 'directionalLight' | 'pointLight' | 'spotLight' | 'group'
 
 function isSceneDataLike(data: unknown): data is SceneData {
   return typeof data === 'object' && data !== null && !Array.isArray(data) &&
@@ -84,11 +91,15 @@ export class Editor {
   private readonly deleteButton: HTMLButtonElement
   private readonly duplicateButton: HTMLButtonElement
   private readonly renameButton: HTMLButtonElement
+  private readonly groupButton: HTMLButtonElement
+  private readonly ungroupButton: HTMLButtonElement
+  private readonly unparentButton: HTMLButtonElement
   private readonly undoButton: HTMLButtonElement
   private readonly redoButton: HTMLButtonElement
   private readonly playButton: HTMLButtonElement
   private readonly stopButton: HTMLButtonElement
   private readonly assetsButton: HTMLButtonElement
+  private readonly preferencesButton: HTMLButtonElement
   private readonly savePrefabButton: HTMLButtonElement
   private readonly cancelPrefabButton: HTMLButtonElement
   private readonly newSceneButton: HTMLButtonElement
@@ -110,13 +121,19 @@ export class Editor {
   private readonly history: EditorHistory
   private readonly meshRendererSystem: MeshRendererSystem
   private readonly animationSystem: AnimationSystem | undefined
+  private readonly audioSystem: AudioSystem | undefined
   private readonly lightSystem: LightSystem | undefined
   private readonly physicsSystem: PhysicsSystem | undefined
   private readonly assetManager: AssetManager | undefined
   private readonly prefabStore: PrefabStore
   private readonly sceneStore: SceneStore
   private readonly materialStore: MaterialStore
+  private readonly preferences: EditorPreferences
+  private preferencesPanel: PreferencesPanel | null = null
+  private readonly unsubscribePreferences: () => void
   private readonly selectionState: SelectionState
+  private readonly editorState: EntityEditorState
+  private readonly unsubscribeEditorState: () => void
   private readonly editorCamera: EditorCamera
   private readonly grid: EditorGrid
   private readonly colliderVisualizer: ColliderVisualizer
@@ -128,12 +145,14 @@ export class Editor {
   private readonly consolePanel: ConsolePanel
   private consoleHeight = 148
   private readonly canvas: HTMLCanvasElement
+  private readonly viewport: HTMLElement
 
   private activeScene: Scene | null = null
   private selectedEntityId: number | null = null
   private lastSelectedEntityId: number | null = null
   private selectedAsset: AssetFileInfo | null = null
   private readonly pendingGLTFLoads = new Map<string, Promise<GLTFAssetResult>>()
+  private readonly pendingAudioLoads = new Map<string, Promise<AudioBuffer>>()
   private prePlayMaterialIds: string[] | null = null
   private prePlayMaterialProps: Map<string, MaterialProps | null> | null = null
   private spawnCount = 0
@@ -164,10 +183,12 @@ export class Editor {
     assetManager?: AssetManager,
     physicsSystem?: PhysicsSystem,
     lightSystem?: LightSystem,
+    audioSystem?: AudioSystem,
   ) {
     this.sceneManager = sceneManager
     this.meshRendererSystem = meshRendererSystem
     this.animationSystem = animationSystem
+    this.audioSystem = audioSystem
     this.lightSystem = lightSystem
     this.physicsSystem = physicsSystem
     this.assetManager = assetManager
@@ -175,16 +196,20 @@ export class Editor {
     this.prefabStore = new PrefabStore()
     this.sceneStore = new SceneStore()
     this.materialStore = new MaterialStore()
+    this.preferences = new EditorPreferences()
 
     this.history = new EditorHistory(50, () => {
       this.updateHistoryButtons()
     })
 
     this.selectionState = new SelectionState()
+    this.editorState = new EntityEditorState()
     this.editorCamera = new EditorCamera(canvas)
     this.grid = new EditorGrid(renderer)
     this.colliderVisualizer = new ColliderVisualizer(renderer, () => this.sceneManager.getActiveScene())
     this.lightVisualizer = new LightVisualizer(renderer, () => this.sceneManager.getActiveScene())
+    this.colliderVisualizer.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
+    this.lightVisualizer.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
 
     this.hierarchy = new HierarchyPanel({
       onSelectEntity: (entity, modifiers) => {
@@ -199,10 +224,43 @@ export class Editor {
       onReparentEntity: (childId, newParentId) => {
         this.reparentSelection(childId, newParentId)
       },
+      onRenameRequest: (entityId) => {
+        if (!this.playing) {
+          this.hierarchy.beginRename(entityId)
+        }
+      },
+      onDuplicateSelected: () => {
+        this.duplicateSelectedEntity()
+      },
+      onDeleteSelected: () => {
+        this.deleteSelectedEntity()
+      },
+      onGroupIntoFolder: () => {
+        this.groupSelectedIntoFolder()
+      },
+      onUngroupSelected: () => {
+        this.ungroupSelectedFolders()
+      },
       onEmptyClick: () => {
         if (!this.playing) {
           this.selectionState.select(null)
         }
+      },
+      isHidden: (entityId) => this.editorState.isHidden(entityId),
+      isLocked: (entityId) => this.editorState.isLocked(entityId),
+      isEffectivelyHidden: (entityId) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), entityId),
+      onToggleVisibility: (entityId) => {
+        this.toggleEntityVisibility(entityId)
+      },
+      onToggleLock: (entityId) => {
+        this.toggleEntityLock(entityId)
+      },
+      isGroup: (entity) => isGroupEntity(entity),
+      onCreateEntity: () => {
+        if (!this.playing && this.editingPrefab === null) this.createEntity('empty')
+      },
+      onCreateGroup: () => {
+        if (!this.playing && this.editingPrefab === null) this.createEntity('group')
       },
     })
 
@@ -259,6 +317,24 @@ export class Editor {
       },
       getAnimationClips: (entityId) => this.getAnimationClipsForEntity(entityId),
       getAnimationSource: (entityId) => this.getAnimationSourceForEntity(entityId),
+      onAudioCommit: (entityId, before, after) => {
+        this.recordAudioChange(entityId, before, after)
+      },
+      onAddAudioComponent: (entityId) => {
+        this.addAudioComponent(entityId)
+      },
+      onRemoveAudioComponent: (entityId) => {
+        this.removeAudioComponent(entityId)
+      },
+      onAudioPreviewToggle: (entityId, playing) => {
+        if (playing) this.startAudioPreview(entityId)
+        else this.stopAudioPreview(entityId)
+      },
+      onAudioStopPreview: (entityId) => {
+        this.stopAudioPreview(entityId)
+      },
+      getAudioAssets: () => this.getAudioAssets(),
+      isAudioPreviewing: (entityId) => this.audioSystem?.isPreviewing(entityId) ?? false,
     })
 
     this.assetBrowser = new AssetBrowser({
@@ -279,6 +355,10 @@ export class Editor {
           this.assignMaterialFromBrowser(asset)
           return
         }
+        if (asset.kind === 'audio') {
+          void this.instantiateAudioAsset(asset)
+          return
+        }
         void this.instantiateAsset(asset)
       },
       getPrefabAssets: () => this.prefabStore.listNames().map((name) => prefabAssetForName(name)),
@@ -295,6 +375,7 @@ export class Editor {
       animationSystem,
       lightSystem,
       selectionState: this.selectionState,
+      isSelectable: (entityId) => this.editorState.canSelect(this.sceneManager.getActiveScene(), entityId),
       onTransformChanged: (transform) => {
         this.inspector.syncValues(transform)
       },
@@ -315,6 +396,7 @@ export class Editor {
       this.selectionState,
       animationSystem,
     )
+    this.selectionHighlight.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
 
     this.picker = new EntityPicker({
       canvas,
@@ -324,6 +406,16 @@ export class Editor {
       animationSystem,
       selectionState: this.selectionState,
       isGizmoInteracting: () => this.gizmo.isInteracting(),
+      isPickable: (entityId) => this.editorState.isPickable(this.sceneManager.getActiveScene(), entityId),
+    })
+
+    this.unsubscribeEditorState = this.editorState.onChange(() => {
+      if (this.playing) return
+      const scene = this.sceneManager.getActiveScene()
+      this.editorState.pruneSelection(this.selectionState, scene)
+      this.applyEditorVisibility()
+      this.hierarchySignature = ''
+      this.update()
     })
 
     this.root = document.createElement('div')
@@ -382,7 +474,7 @@ export class Editor {
     this.modifyMenuButton.type = 'button'
     this.modifyMenuButton.className = 'trion-editor-button'
     this.modifyMenuButton.textContent = 'Modify Selected ▼'
-    this.modifyMenuButton.title = 'Rename, duplicate or delete the selected entity'
+    this.modifyMenuButton.title = 'Rename, duplicate, group, ungroup, unparent or delete the selected entity'
     this.modifyMenuButton.setAttribute('aria-haspopup', 'true')
     this.modifyMenuButton.setAttribute('aria-expanded', 'false')
     this.modifyMenuButton.disabled = true
@@ -429,9 +521,24 @@ export class Editor {
       this.duplicateSelectedEntity()
     })
 
+    this.groupButton = document.createElement('button')
+    appendModifyItem(this.groupButton, 'Group into Folder', 'Ctrl+G', 'Group Selected into a New Folder (Ctrl+G)', () => {
+      this.groupSelectedIntoFolder()
+    })
+
+    this.ungroupButton = document.createElement('button')
+    appendModifyItem(this.ungroupButton, 'Ungroup', null, 'Move folder contents out and delete the empty folder', () => {
+      this.ungroupSelectedFolders()
+    })
+
     this.deleteButton = document.createElement('button')
     appendModifyItem(this.deleteButton, 'Delete Selected', null, 'Delete Selected', () => {
       this.deleteSelectedEntity()
+    })
+
+    this.unparentButton = document.createElement('button')
+    appendModifyItem(this.unparentButton, 'Unparent', null, 'Move selected entities to root, preserving world transform', () => {
+      this.unparentSelectedEntities()
     })
 
     this.assetsButton = document.createElement('button')
@@ -444,6 +551,15 @@ export class Editor {
     this.assetsButton.title = 'Toggle Asset Browser'
     this.assetsButton.setAttribute('aria-pressed', 'false')
     this.assetsButton.addEventListener('click', () => this.toggleAssetBrowser())
+
+    this.preferencesButton = document.createElement('button')
+    this.preferencesButton.type = 'button'
+    this.preferencesButton.className = 'trion-editor-button is-preferences'
+    this.preferencesButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>'
+    this.preferencesButton.title = 'Editor Preferences'
+    this.preferencesButton.setAttribute('aria-label', 'Editor Preferences')
+    this.preferencesButton.setAttribute('aria-pressed', 'false')
+    this.preferencesButton.addEventListener('click', () => this.togglePreferences())
 
     const fileMenu = document.createElement('div')
     fileMenu.className = 'trion-editor-menu'
@@ -509,6 +625,7 @@ export class Editor {
     createMenu.append(this.createButton, this.createMenuPanel)
     const createOptions: Array<{ kind: CreateEntityKind; label: string; title: string }> = [
       { kind: 'empty', label: 'Empty', title: 'Create an empty entity' },
+      { kind: 'group', label: 'Folder', title: 'Create an empty folder for organizing the hierarchy' },
       { kind: 'cube', label: 'Cube', title: 'Create a cube entity' },
       { kind: 'sphere', label: 'Sphere', title: 'Create a sphere entity' },
       { kind: 'directionalLight', label: 'Directional Light', title: 'Create a directional light entity' },
@@ -567,6 +684,7 @@ export class Editor {
       this.createMenu,
       this.modifyMenu,
       this.assetsButton,
+      this.preferencesButton,
       this.savePrefabButton,
       this.cancelPrefabButton,
       this.playButton,
@@ -576,6 +694,7 @@ export class Editor {
 
     const viewport = document.createElement('main')
     viewport.className = 'trion-editor-viewport'
+    this.viewport = viewport
     const viewportToolbar = document.createElement('div')
     viewportToolbar.className = 'trion-editor-viewport-toolbar'
 
@@ -654,12 +773,17 @@ export class Editor {
       const relativePath = e.dataTransfer.getData(ASSET_DROP_MIME) || e.dataTransfer.getData('text/plain')
       if (!relativePath) return
       const asset = this.assetBrowser.findAsset(relativePath.trim())
-      if (!asset || (asset.kind !== 'model' && asset.kind !== 'prefab')) return
+      if (!asset || (asset.kind !== 'model' && asset.kind !== 'prefab' && asset.kind !== 'audio')) return
       if (asset.kind === 'prefab') {
         const name = prefabNameFromAsset(asset)
         if (!name) return
         e.preventDefault()
         this.instantiatePrefab(name)
+        return
+      }
+      if (asset.kind === 'audio') {
+        e.preventDefault()
+        void this.instantiateAudioAsset(asset)
         return
       }
       if (!this.assetManager) return
@@ -721,6 +845,17 @@ export class Editor {
         this.duplicateSelectedEntity()
         return
       }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyG') {
+        e.preventDefault()
+        if (!this.playing && this.editingPrefab === null) {
+          if (this.selectionState.getCount() > 0) {
+            this.groupSelectedIntoFolder()
+          } else {
+            this.createEntity('group')
+          }
+        }
+        return
+      }
       if ((e.code === 'Delete' || e.code === 'Backspace') && !this.playing) {
         e.preventDefault()
         this.deleteSelectedEntity()
@@ -763,6 +898,10 @@ export class Editor {
     }
     window.addEventListener('beforeunload', this.onBeforeUnload)
 
+    this.unsubscribePreferences = this.preferences.onChange(() => {
+      this.applyEditorPreferences()
+    })
+    this.applyEditorPreferences()
     this.syncMaterialAssets()
     this.toggleAssetBrowser(false)
     this.update()
@@ -784,6 +923,53 @@ export class Editor {
 
   isAssetBrowserOpen(): boolean {
     return this.assetsOpen
+  }
+
+  togglePreferences(open?: boolean): void {
+    const next = open ?? this.preferencesPanel === null
+    if (!next) {
+      this.preferencesPanel?.close()
+      return
+    }
+    if (!this.preferencesPanel) {
+      this.preferencesPanel = new PreferencesPanel(this.root, this.preferences, {
+        onClose: () => {
+          this.preferencesPanel = null
+          this.preferencesButton.classList.remove('is-active')
+          this.preferencesButton.setAttribute('aria-pressed', 'false')
+        },
+      })
+    }
+    this.preferencesPanel.open()
+    this.preferencesButton.classList.add('is-active')
+    this.preferencesButton.setAttribute('aria-pressed', 'true')
+  }
+
+  isPreferencesOpen(): boolean {
+    return this.preferencesPanel !== null
+  }
+
+  getPreferences(): EditorPreferences {
+    return this.preferences
+  }
+
+  /** Push the current preferences into the live editor systems. */
+  private applyEditorPreferences(): void {
+    const prefs = this.preferences.get()
+    this.viewport.classList.toggle('is-bg-grid-hidden', !prefs.backgroundGridVisible)
+    this.viewport.style.setProperty('--editor-bg-grid-size', `${prefs.backgroundGridSize}px`)
+    this.viewport.style.setProperty('--editor-bg-grid-opacity', String(prefs.backgroundGridOpacity))
+    // Play Mode always hides the grid; visibility preference applies on stop.
+    this.grid.setVisible(prefs.sceneGridVisible && !this.playing)
+    this.grid.setSize(prefs.sceneGridSize, prefs.sceneGridDivisions)
+    this.grid.setOpacity(prefs.sceneGridOpacity)
+    this.gizmo.setGizmoVisible(prefs.gizmosVisible)
+    this.gizmo.setTransformSpace(prefs.gizmoSpace)
+    this.gizmo.setGizmoSize(prefs.gizmoSize)
+    this.gizmo.setSnapping(prefs.snapEnabled, prefs.snapPosition, prefs.snapRotation, prefs.snapScale)
+    this.editorCamera.setMoveSpeed(prefs.cameraMoveSpeed)
+    this.editorCamera.setOrbitSpeed(prefs.cameraOrbitSpeed)
+    this.editorCamera.setZoomSpeed(prefs.cameraZoomSpeed)
   }
 
   getConsolePanel(): ConsolePanel {
@@ -835,6 +1021,25 @@ export class Editor {
     this.renameButton.disabled = !canModify
     this.deleteButton.disabled = !canModify
     this.duplicateButton.disabled = !canModify || this.editingPrefab !== null
+    this.groupButton.disabled = !canModify || this.editingPrefab !== null
+    // Ungroup is only meaningful when the selection contains a folder.
+    let canUngroup = false
+    if (canModify && this.editingPrefab === null) {
+      const scene = this.sceneManager.getActiveScene()
+      canUngroup = this.selectionState.getSelectedIds().some((id) => {
+        const entity = scene.getEntity(id)
+        return entity !== undefined && isGroupEntity(entity)
+      })
+    }
+    this.ungroupButton.disabled = !canUngroup
+    // Unparent is only meaningful when at least one selected entity is nested.
+    // Disabled (not hidden) when the selection is already at the root.
+    let canUnparent = false
+    if (canModify) {
+      const scene = this.sceneManager.getActiveScene()
+      canUnparent = this.selectionState.getSelectedIds().some((id) => getParentId(scene, id) !== null)
+    }
+    this.unparentButton.disabled = !canUnparent
   }
 
   /** Begin inline rename for the selected entity. No-op when nothing can be renamed. */
@@ -846,26 +1051,92 @@ export class Editor {
   /**
    * Hierarchy click routing: ctrl toggles membership, shift extends a range
    * from the active entity through flat display order, plain clicks isolate.
+   * Hidden (including effectively hidden) and locked entities are not
+   * selectable; their eye/lock buttons remain the way back.
    */
   private handleHierarchySelect(entityId: number, modifiers?: HierarchySelectModifiers): void {
+    const scene = this.sceneManager.getActiveScene()
     if (modifiers?.shiftKey) {
       const order = this.hierarchy.getDisplayOrder()
       const anchor = this.selectedEntityId
       const from = anchor !== null ? order.indexOf(anchor) : -1
       const to = order.indexOf(entityId)
       if (from !== -1 && to !== -1) {
-        const range = order.slice(Math.min(from, to), Math.max(from, to) + 1)
-        this.selectionState.setSelection(range, entityId)
+        const range = this.editorState.filterSelectable(scene, order.slice(Math.min(from, to), Math.max(from, to) + 1))
+        if (range.length === 0) return
+        const active = range.includes(entityId) ? entityId : range[range.length - 1]
+        this.selectionState.setSelection(range, active)
         return
       }
+      if (!this.editorState.canSelect(scene, entityId)) return
       this.selectionState.select(entityId)
       return
     }
     if (modifiers?.ctrlKey) {
+      if (this.selectionState.isSelected(entityId)) {
+        this.selectionState.toggleSelection(entityId)
+        return
+      }
+      if (!this.editorState.canSelect(scene, entityId)) return
       this.selectionState.toggleSelection(entityId)
       return
     }
+    if (!this.editorState.canSelect(scene, entityId)) return
     this.selectionState.select(entityId)
+  }
+
+  getEditorState(): EntityEditorState {
+    return this.editorState
+  }
+
+  isEntityHidden(entityId: number): boolean {
+    return this.editorState.isHidden(entityId)
+  }
+
+  isEntityLocked(entityId: number): boolean {
+    return this.editorState.isLocked(entityId)
+  }
+
+  toggleEntityVisibility(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    if (!scene.getEntity(entityId)) return
+    this.editorState.toggleHidden(entityId)
+  }
+
+  toggleEntityLock(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    if (!scene.getEntity(entityId)) return
+    this.editorState.toggleLocked(entityId)
+  }
+
+  /** Push editor hidden state to renderer objects. Editor-only: never touches ECS. */
+  private applyEditorVisibility(): void {
+    const scene = this.sceneManager.getActiveScene()
+    for (const entity of scene.getAllEntities()) {
+      const hidden = this.editorState.isEffectivelyHidden(scene, entity.id)
+      const visible = !hidden
+      const mesh = this.meshRendererSystem.getMesh(entity.id)
+      if (mesh && mesh.visible !== visible) mesh.visible = visible
+      const target = this.animationSystem?.getTarget(entity.id)
+      if (target && target.visible !== visible) target.visible = visible
+      const light = this.lightSystem?.getLight(entity.id)
+      if (light && light.visible !== visible) light.visible = visible
+    }
+  }
+
+  /** Force every runtime object visible so Play Mode never inherits editor hiding. */
+  private restoreRuntimeVisibility(): void {
+    const scene = this.sceneManager.getActiveScene()
+    for (const entity of scene.getAllEntities()) {
+      const mesh = this.meshRendererSystem.getMesh(entity.id)
+      if (mesh) mesh.visible = true
+      const target = this.animationSystem?.getTarget(entity.id)
+      if (target) target.visible = true
+      const light = this.lightSystem?.getLight(entity.id)
+      if (light) light.visible = true
+    }
   }
 
   getCamera(): THREE.PerspectiveCamera {
@@ -886,6 +1157,10 @@ export class Editor {
 
   isPlaying(): boolean {
     return this.playing
+  }
+
+  getAudioSystem(): AudioSystem | undefined {
+    return this.audioSystem
   }
 
   play(): void {
@@ -921,6 +1196,10 @@ export class Editor {
     // Discard any previous run's backend bodies so Play always starts fresh.
     this.physicsSystem?.reset()
 
+    // Editor preview must never leak into Play Mode: stop it before the
+    // snapshot is used at runtime, then arm playOnStart sources.
+    this.audioSystem?.enterPlayMode()
+
     this.playing = true
     this.editorViewActive = false
     this.editorCamera.setEnabled(false)
@@ -932,6 +1211,8 @@ export class Editor {
     this.selectionHighlight.setVisible(false)
     this.history.setDisabled(true)
     this.assetBrowser.setDisabled(true)
+    // Editor hiding is edit-mode only: runtime always sees every entity.
+    this.restoreRuntimeVisibility()
 
     this.root.classList.add('is-playing')
     this.playButton.disabled = true
@@ -987,7 +1268,8 @@ export class Editor {
     this.editorViewActive = true
     this.editorCamera.setEnabled(true)
     this.picker.setEnabled(true)
-    this.grid.setVisible(true)
+    // Restore the preferred grid visibility rather than forcing it on.
+    this.applyEditorPreferences()
     this.colliderVisualizer.setVisible(true)
     this.lightVisualizer.setVisible(true)
     this.selectionHighlight.setVisible(true)
@@ -996,6 +1278,10 @@ export class Editor {
 
     // Discard runtime physics bodies so simulation state never leaks into edit mode.
     this.physicsSystem?.reset()
+
+    // Stop every runtime source so no Play Mode audio survives. The scene
+    // restore below then brings back the pre-play authored state.
+    this.audioSystem?.exitPlayMode()
 
     this.restorePrePlayMaterials()
 
@@ -1008,12 +1294,20 @@ export class Editor {
 
     // Re-select even when the ID is unchanged (same-ID select is a no-op),
     // so the Inspector and gizmo rebind to the restored objects.
+    // Editor hidden/locked sets survive Play Mode untouched; drop any
+    // restored selection members that are now unselectable.
     const restoredSelectionId = snapshot.selectedEntityId
-    const restoredSelectionIds = (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined)
+    const restoredSelectionIds = this.editorState.filterSelectable(
+      scene,
+      (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined),
+    )
+    const restoredActive = restoredSelectionId !== null && restoredSelectionIds.includes(restoredSelectionId)
+      ? restoredSelectionId
+      : (restoredSelectionIds.length > 0 ? restoredSelectionIds[restoredSelectionIds.length - 1] : null)
     this.selectionState.select(null)
     if (restoredSelectionIds.length > 0) {
-      this.selectionState.setSelection(restoredSelectionIds, restoredSelectionId)
-    } else if (restoredSelectionId !== null && scene.getEntity(restoredSelectionId)) {
+      this.selectionState.setSelection(restoredSelectionIds, restoredActive)
+    } else if (restoredSelectionId !== null && this.editorState.canSelect(scene, restoredSelectionId)) {
       this.selectionState.select(restoredSelectionId)
     } else if (this.selectedAsset && this.selectedEntityId === null) {
       this.showSelectedAsset(true)
@@ -1058,6 +1352,11 @@ export class Editor {
     // Zero-delta rebuild: refreshes animation entries (add/remove/undo/redo)
     // without advancing playback time.
     this.animationSystem?.update(0)
+    if (!this.playing) {
+      this.applyEditorVisibility()
+    } else {
+      this.restoreRuntimeVisibility()
+    }
   }
 
   private recordTransformChange(entityId: number, before: TransformData, after: TransformData): void {
@@ -1862,21 +2161,221 @@ export class Editor {
     this.update()
   }
 
-  update(): void {    const scene = this.sceneManager.getActiveScene()
+  private recordAudioChange(
+    entityId: number,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ): void {
+    if (this.playing) return
+    this.markSceneDirty()
+    // Ensure the newly selected clip is decoded so preview can start
+    // immediately without a second click.
+    const afterAssetId = typeof after.assetId === 'string' ? after.assetId : undefined
+    if (afterAssetId) {
+      const asset = this.assetBrowser.listAudioAssets().find((entry) => assetIdForFile(entry) === afterAssetId)
+      if (asset) {
+        void this.ensureAudioBuffer(afterAssetId, asset.url).then((ok) => {
+          if (ok) this.noteAudioAssetLoaded()
+        })
+      }
+    }
+    this.history.execute({
+      description: 'Change Audio Source',
+      undo: () => {
+        this.applyAudioSnapshot(entityId, before)
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        this.applyAudioSnapshot(entityId, after)
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  private applyAudioSnapshot(
+    entityId: number,
+    snapshot: Record<string, unknown>,
+  ): void {
+    const entity = this.sceneManager.getActiveScene().getEntity(entityId)
+    const component = entity?.getComponent('audio') as Record<string, unknown> | undefined
+    if (!component) return
+    // `playing` is runtime-only and never part of the authored snapshot.
+    if ('assetId' in snapshot && typeof snapshot.assetId !== 'string') {
+      delete component.assetId
+    }
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (key === 'type' || key === 'playing') continue
+      if (value === undefined && key === 'assetId') {
+        delete component.assetId
+        continue
+      }
+      component[key] = cloneValue(value)
+    }
+  }
+
+  private addAudioComponent(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    const entity = scene.getEntity(entityId)
+    if (!entity || entity.hasComponent('audio')) return
+
+    const firstClip = this.getAudioAssets()[0]?.id
+    entity.addComponent(createAudio({ assetId: firstClip }))
+    if (firstClip) {
+      const asset = this.assetBrowser.listAudioAssets().find((entry) => assetIdForFile(entry) === firstClip)
+      if (asset) {
+        void this.ensureAudioBuffer(firstClip, asset.url)
+      }
+    }
+    this.markSceneDirty()
+    this.renderInspectorForSelection(entity)
+    this.update()
+
+    this.history.execute({
+      description: 'Add Audio Source',
+      undo: () => {
+        this.audioSystem?.stopPreview(entityId)
+        scene.getEntity(entityId)?.removeComponent('audio')
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        const target = scene.getEntity(entityId)
+        if (target && !target.hasComponent('audio')) {
+          const clip = this.getAudioAssets()[0]?.id
+          target.addComponent(createAudio({ assetId: clip }))
+        }
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  private removeAudioComponent(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    const entity = scene.getEntity(entityId)
+    const existing = entity?.getComponent('audio')
+    if (!entity || !existing) return
+
+    const saved = cloneComponent(existing)
+    this.audioSystem?.stopPreview(entityId)
+    entity.removeComponent('audio')
+    this.markSceneDirty()
+    this.renderInspectorForSelection(entity)
+    this.update()
+
+    this.history.execute({
+      description: 'Remove Audio Source',
+      undo: () => {
+        const target = scene.getEntity(entityId)
+        if (target && !target.hasComponent('audio')) {
+          target.addComponent(cloneComponent(saved))
+        }
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        this.audioSystem?.stopPreview(entityId)
+        scene.getEntity(entityId)?.removeComponent('audio')
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  /**
+   * Editor preview transport: starts Web Audio preview without touching
+   * `component.playing` or history, so preview state cannot leak into
+   * Play Mode snapshots. Ensures the buffer is decoded first.
+   */
+  private startAudioPreview(entityId: number): void {
+    if (this.playing) return
+    const entity = this.sceneManager.getActiveScene().getEntity(entityId)
+    const component = entity?.getComponent('audio') as { assetId?: unknown } | undefined
+    if (!entity || !component || typeof component.assetId !== 'string') return
+    const assetId = component.assetId
+    const asset = this.assetBrowser.listAudioAssets().find((entry) => assetIdForFile(entry) === assetId)
+    const begin = (): void => {
+      this.audioSystem?.startPreview(entityId)
+      if (this.selectedEntityId === entityId) {
+        this.renderInspectorForSelection()
+      }
+      this.update()
+    }
+    if (asset && this.assetManager && !this.assetManager.hasAudioBuffer(assetId)) {
+      void this.ensureAudioBuffer(assetId, asset.url).then((ok) => {
+        if (ok && !this.playing) begin()
+        else if (!ok) this.status.textContent = 'Failed to load audio for preview'
+      })
+      return
+    }
+    begin()
+  }
+
+  /** Editor preview Stop: history-free, never touches authored settings. */
+  private stopAudioPreview(entityId: number): void {
+    if (this.playing) return
+    this.audioSystem?.stopPreview(entityId)
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
+  update(): void {
+    const scene = this.sceneManager.getActiveScene()
     const entities = scene.getAllEntities()
 
     if (scene !== this.activeScene) {
       this.activeScene = scene
       this.selectionState.select(null)
+      this.editorState.clear()
       this.hierarchySignature = ''
     }
 
-    const validSelectedIds = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+    this.editorState.pruneStale(scene)
+    const validSelectedIds = this.editorState.filterSelectable(
+      scene,
+      this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined),
+    )
     if (validSelectedIds.length !== this.selectionState.getCount()) {
-      this.selectionState.setSelection(validSelectedIds, this.selectionState.getActiveId())
+      const active = this.selectionState.getActiveId()
+      this.selectionState.setSelection(
+        validSelectedIds,
+        active !== null && validSelectedIds.includes(active)
+          ? active
+          : (validSelectedIds.length > 0 ? validSelectedIds[validSelectedIds.length - 1] : null),
+      )
     }
 
-    const signature = entities.map((entity) => `${entity.id}:${entity.name ?? ''}:${getParentId(scene, entity.id) ?? ''}`).join('|')
+    const signature = `${entities.map((entity) => `${entity.id}:${entity.name ?? ''}:${getParentId(scene, entity.id) ?? ''}`).join('|')}|v${this.editorState.getVersion()}`
     if (signature !== this.hierarchySignature) {
       this.hierarchySignature = signature
       this.hierarchy.render(entities, this.selectedEntityId, this.selectionState.getSelectedIds())
@@ -1888,21 +2387,33 @@ export class Editor {
     }
 
     if (!this.playing) {
+      // Preview listener follows the editor camera so 3D previews pan
+      // from the user's current viewpoint.
+      const camera = this.editorCamera.camera.position
+      this.audioSystem?.setPreviewListener({ x: camera.x, y: camera.y, z: camera.z })
       this.editorCamera.update()
       this.colliderVisualizer.update()
       this.lightVisualizer.update()
       this.selectionHighlight.update()
       this.gizmo.update()
+    } else {
+      this.audioSystem?.setPreviewListener(null)
     }
   }
 
   dispose(): void {
+    this.audioSystem?.stopAllPreviews()
+    this.audioSystem?.setPreviewListener(null)
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('beforeunload', this.onBeforeUnload)
     document.removeEventListener('pointerdown', this.onDocumentPointerDown)
     this.canvas.removeEventListener('dragover', this.onCanvasDragOver)
     this.canvas.removeEventListener('drop', this.onCanvasDrop)
     this.unsubscribeSelection()
+    this.unsubscribeEditorState()
+    this.unsubscribePreferences()
+    this.preferencesPanel?.dispose()
+    this.preferencesPanel = null
     this.picker.dispose()
     this.gizmo.dispose()
     this.selectionHighlight.dispose()
@@ -1995,8 +2506,12 @@ export class Editor {
       return
     }
     this.inspector.renderAsset(asset, {
-      canInstantiate: canEditScene && asset.kind === 'model' && this.assetManager !== undefined,
+      canInstantiate: canEditScene && (asset.kind === 'model' || asset.kind === 'audio') && this.assetManager !== undefined,
       onInstantiate: (target) => {
+        if (target.kind === 'audio') {
+          void this.instantiateAudioAsset(target)
+          return
+        }
         void this.instantiateAsset(target)
       },
     })
@@ -2073,6 +2588,144 @@ export class Editor {
     this.history.execute({
       description: `Add ${createdName}`,
       undo: () => {
+        scene.destroyEntity(createdId)
+        if (this.selectedEntityId === createdId) {
+          this.selectionState.select(null)
+        }
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.update()
+      },
+      redo: () => {
+        if (!scene.getEntity(createdId)) {
+          const recreated = (scene as any).createEntityWithId(createdId, { name: createdName }) as Entity
+          for (const comp of createdComponents) {
+            recreated.addComponent(cloneComponent(comp))
+          }
+        }
+        this.selectedAsset = null
+        this.assetBrowser.clearSelection()
+        this.selectionState.select(createdId)
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.update()
+      },
+    })
+  }
+
+  private async ensureAudioBuffer(assetId: string, url: string): Promise<boolean> {
+    const manager = this.assetManager
+    if (!manager || manager.hasAudioBuffer(assetId)) return true
+    const pending = this.pendingAudioLoads.get(assetId)
+    if (pending) {
+      try {
+        await pending
+        return true
+      } catch {
+        return false
+      }
+    }
+    const load = manager.loadAudio(assetId, url)
+    this.pendingAudioLoads.set(assetId, load)
+    try {
+      await load
+      return true
+    } catch (error) {
+      trionLogger.error(`Failed to load audio "${assetId}"`, { source: 'Editor', error })
+      return false
+    } finally {
+      this.pendingAudioLoads.delete(assetId)
+    }
+  }
+
+  /** Called by the host after an audio asset load so pickers stay fresh. */
+  noteAudioAssetLoaded(): void {
+    if (this.playing) return
+    this.renderInspectorForSelection()
+  }
+
+  private getAudioAssets(): Array<{ id: string; label: string }> {
+    const seen = new Set<string>()
+    const out: Array<{ id: string; label: string }> = []
+    const push = (id: string, label: string): void => {
+      if (seen.has(id)) return
+      seen.add(id)
+      out.push({ id, label })
+    }
+    // Discovered files first (includes public/assets mp3/wav/ogg).
+    for (const asset of this.listDiscoveredAudioAssets()) {
+      push(asset.id, asset.label)
+    }
+    // Already-loaded buffers (covers programmatic registrations).
+    if (this.assetManager) {
+      for (const entity of this.sceneManager.getActiveScene().getEntitiesWithComponent('audio')) {
+        const component = entity.getComponent('audio') as { assetId?: unknown } | undefined
+        if (component && typeof component.assetId === 'string' && !seen.has(component.assetId)) {
+          push(component.assetId, component.assetId)
+        }
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label))
+    return out
+  }
+
+  private listDiscoveredAudioAssets(): Array<{ id: string; label: string }> {
+    const found: Array<{ id: string; label: string }> = []
+    const seen = new Set<string>()
+    for (const asset of this.assetBrowser.listAudioAssets()) {
+      const id = assetIdForFile(asset)
+      if (seen.has(id)) continue
+      seen.add(id)
+      found.push({ id, label: `${asset.fileName} (${id})` })
+    }
+    // Always surface the bundled test clip even when the browser is
+    // filtered to a subfolder, so it stays easy to discover.
+    const testId = 'asset/trion-test-audio'
+    if (!seen.has(testId) && this.assetBrowser.findAsset('trion-test-audio.mp3')) {
+      found.push({ id: testId, label: `trion-test-audio.mp3 (${testId})` })
+    }
+    return found
+  }
+
+  private async instantiateAudioAsset(asset: AssetFileInfo): Promise<void> {
+    if (this.playing || this.editingPrefab !== null || asset.kind !== 'audio' || !this.assetManager) return
+    const assetId = assetIdForFile(asset)
+    this.status.textContent = `Loading ${asset.fileName}…`
+    const ok = await this.ensureAudioBuffer(assetId, asset.url)
+    if (!ok) {
+      this.status.textContent = `Failed to load ${asset.fileName}`
+      return
+    }
+    if (this.playing) return
+    this.noteAudioAssetLoaded()
+
+    const scene = this.sceneManager.getActiveScene()
+    const focus = this.editorCamera.getTarget()
+    const baseName = asset.fileName.replace(/\.[^.]+$/, '') || asset.fileName
+    const offset = (this.spawnCount % 5) * 0.5
+    this.spawnCount += 1
+
+    this.markSceneDirty()
+    const entity = scene.createEntity()
+    entity.name = baseName
+    entity.addComponent(createTransform({ x: focus.x + offset, y: focus.y, z: focus.z }))
+    entity.addComponent(createAudio({ assetId, playOnStart: false }))
+    const createdId = entity.id
+    const createdName = entity.name ?? `Entity ${entity.id}`
+    const createdComponents = entity.getAllComponents().map((c) => cloneComponent(c))
+
+    this.selectedAsset = null
+    this.assetBrowser.clearSelection()
+    this.selectionState.select(createdId)
+    this.hierarchySignature = ''
+    this.syncViewportSystems()
+    this.update()
+    this.status.textContent = `Added Audio Source "${createdName}".`
+
+    this.history.execute({
+      description: `Add ${createdName}`,
+      undo: () => {
+        this.audioSystem?.stopPreview(createdId)
         scene.destroyEntity(createdId)
         if (this.selectedEntityId === createdId) {
           this.selectionState.select(null)
@@ -2252,12 +2905,15 @@ export class Editor {
       selectedEntityId: this.selectedEntityId,
       selectedEntityIds: this.selectionState.getSelectedIds(),
       selectedAssetPath: this.selectedAsset?.relativePath ?? null,
+      editorHidden: this.editorState.getHiddenIds(),
+      editorLocked: this.editorState.getLockedIds(),
     }
 
     this.history.clear()
     this.selectedAsset = null
     this.assetBrowser.clearSelection()
     this.selectionState.select(null)
+    this.editorState.clear()
     scene.deserialize({ entities: [] })
     const entity = scene.instantiate(prefab)
     entity.name = record.entityName?.trim() || name
@@ -2266,6 +2922,7 @@ export class Editor {
     this.selectionState.select(entity.id)
     this.hierarchySignature = ''
     this.animationSystem?.clear()
+    this.audioSystem?.clear()
     this.syncViewportSystems()
 
     this.root.classList.add('is-prefab-editing')
@@ -2328,7 +2985,9 @@ export class Editor {
     this.editingEntityId = null
     this.preEditSnapshot = null
     this.history.clear()
+    this.editorState.restore({ hidden: snapshot.editorHidden ?? [], locked: snapshot.editorLocked ?? [] })
     this.animationSystem?.clear()
+    this.audioSystem?.clear()
     this.syncViewportSystems()
 
     this.root.classList.remove('is-prefab-editing')
@@ -2345,10 +3004,14 @@ export class Editor {
     this.assetBrowser.refresh()
 
     this.selectionState.select(null)
-    if (snapshot.selectedEntityId !== null && scene.getEntity(snapshot.selectedEntityId)) {
-      const ids = (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined)
+    if (snapshot.selectedEntityId !== null && this.editorState.canSelect(scene, snapshot.selectedEntityId)) {
+      const ids = this.editorState.filterSelectable(
+        scene,
+        (snapshot.selectedEntityIds ?? []).filter((id) => scene.getEntity(id) !== undefined),
+      )
       if (ids.length > 0) {
-        this.selectionState.setSelection(ids, snapshot.selectedEntityId)
+        const active = ids.includes(snapshot.selectedEntityId) ? snapshot.selectedEntityId : ids[ids.length - 1]
+        this.selectionState.setSelection(ids, active)
       } else {
         this.selectionState.select(snapshot.selectedEntityId)
       }
@@ -2483,6 +3146,7 @@ export class Editor {
     this.selectedAsset = null
     this.assetBrowser.clearSelection()
     this.selectionState.select(null)
+    this.editorState.clear()
     this.history.clear()
     try {
       scene.deserialize(data)
@@ -2496,6 +3160,7 @@ export class Editor {
     this.refreshSceneTitle()
     this.hierarchySignature = ''
     this.animationSystem?.clear()
+    this.audioSystem?.clear()
     this.syncMaterialAssets()
     this.syncViewportSystems()
     this.updateHistoryButtons()
@@ -2511,6 +3176,7 @@ export class Editor {
     this.selectedAsset = null
     this.assetBrowser.clearSelection()
     this.selectionState.select(null)
+    this.editorState.clear()
     this.history.clear()
     scene.deserialize({ entities: [] })
     this.sceneName = null
@@ -2518,6 +3184,7 @@ export class Editor {
     this.refreshSceneTitle()
     this.hierarchySignature = ''
     this.animationSystem?.clear()
+    this.audioSystem?.clear()
     this.syncViewportSystems()
     this.updateHistoryButtons()
     this.update()
@@ -2546,7 +3213,10 @@ export class Editor {
     const scene = this.sceneManager.getActiveScene()
     const entity = scene.createEntity()
     const entityId = entity.id
-    if (kind === 'cube' || kind === 'sphere') {
+    if (kind === 'group') {
+      entity.name = this.uniqueEntityName(GROUP_BASE_NAME)
+      entity.addComponent(createTransform())
+    } else if (kind === 'cube' || kind === 'sphere') {
       this.ensureBuiltinGeometry()
       entity.name = this.uniqueEntityName(kind === 'cube' ? 'Cube' : 'Sphere')
       entity.addComponent(createTransform())
@@ -2770,8 +3440,249 @@ export class Editor {
     })
   }
 
-  private applyReparentState(childId: number, parentId: number | null, local: TransformData | null): void {
-    this.setReparentState(childId, parentId, local)
+  /**
+   * Move the current selection to the hierarchy root, preserving world
+   * transforms. Reuses the standard reparent path with a null parent, so
+   * multi-selection roots, transform preservation and single undo entries
+   * behave exactly like drag-to-root unparenting. No-op when the selection
+   * is already at the root or while playing.
+   */
+  private unparentSelectedEntities(): void {
+    if (this.playing || this.selectedEntityId === null) return
+    this.reparentSelection(this.selectedEntityId, null)
+  }
+
+  /**
+   * Group the current selection into a new folder: a transform-only entity is
+   * created (at the shared parent when all selected roots share one, at the
+   * root otherwise) and every selected hierarchy root is reparented under it
+   * with world transforms preserved. One undoable operation.
+   */
+  private groupSelectedIntoFolder(): void {
+    if (this.playing || this.editingPrefab !== null || this.selectionState.getCount() === 0) return
+    const scene = this.sceneManager.getActiveScene()
+    const sourceIds = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
+    if (sourceIds.length === 0) return
+    const roots = filterToRoots(scene, sourceIds)
+    if (roots.length === 0) return
+
+    const firstParent = getParentId(scene, roots[0])
+    const sharedParent = roots.every((id) => getParentId(scene, id) === firstParent) ? firstParent : null
+
+    const folder = scene.createEntity()
+    const folderId = folder.id
+    folder.name = this.uniqueEntityName(GROUP_BASE_NAME)
+    folder.addComponent(createTransform())
+    if (sharedParent !== null) {
+      applyParentLink(folder, sharedParent)
+    }
+    const folderName = folder.name ?? `Entity ${folderId}`
+    const folderComponents = folder.getAllComponents().map((c) => cloneComponent(c))
+
+    const moves = roots.map((rootId) => {
+      const child = scene.getEntity(rootId)
+      const beforeTransform = child?.getComponent<TransformComponent>('transform')
+      return {
+        childId: rootId,
+        beforeParent: getParentId(scene, rootId),
+        beforeLocal: beforeTransform
+          ? {
+            position: { ...beforeTransform.position },
+            rotation: { ...beforeTransform.rotation },
+            scale: { ...beforeTransform.scale },
+          } as TransformData
+          : null,
+        afterParent: folderId,
+        afterLocal: computePreservedLocal(scene, rootId, folderId),
+      }
+    })
+
+    for (const move of moves) {
+      const check = canReparent(scene, move.childId, folderId)
+      if (!check.ok) {
+        for (const done of moves) {
+          if (done === move) break
+          this.setReparentState(done.childId, done.beforeParent, done.beforeLocal)
+        }
+        scene.destroyEntity(folderId)
+        this.editorState.removeEntity(folderId)
+        this.status.textContent = 'Cannot group: invalid parent.'
+        trionLogger.warn('Invalid group into folder.', { source: 'Editor' })
+        return
+      }
+    }
+
+    for (const move of moves) {
+      this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+    }
+    const previousSelection = [...sourceIds]
+    const previousActive = this.selectionState.getActiveId()
+    this.markSceneDirty()
+    this.selectionState.select(folderId)
+    this.hierarchySignature = ''
+    this.syncViewportSystems()
+    this.renderInspectorForSelection()
+    this.update()
+
+    this.history.execute({
+      description: moves.length === 1 ? `Group ${folderName}` : `Group ${moves.length} entities into ${folderName}`,
+      undo: () => {
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.beforeParent, move.beforeLocal)
+        }
+        scene.destroyEntity(folderId)
+        this.editorState.removeEntity(folderId)
+        this.selectionState.setSelection(
+          previousSelection.filter((id) => scene.getEntity(id) !== undefined),
+          previousActive,
+        )
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+      redo: () => {
+        if (!scene.getEntity(folderId)) {
+          const recreated = (scene as any).createEntityWithId(folderId, { name: folderName }) as Entity
+          for (const comp of folderComponents) {
+            recreated.addComponent(cloneComponent(comp))
+          }
+        }
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+        }
+        this.selectionState.select(folderId)
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+    })
+  }
+
+  /**
+   * Ungroup every selected folder: its direct children move out to the
+   * folder's own parent (or the root) with world transforms preserved, and
+   * the folder itself is deleted once empty. Non-folder entities in the
+   * selection are ignored. One undoable operation.
+   */
+  private ungroupSelectedFolders(): void {
+    if (this.playing || this.editingPrefab !== null || this.selectionState.getCount() === 0) return
+    const scene = this.sceneManager.getActiveScene()
+    const folders = filterToRoots(
+      scene,
+      this.selectionState.getSelectedIds().filter((id) => {
+        const entity = scene.getEntity(id)
+        return entity !== undefined && isGroupEntity(entity)
+      }),
+    )
+    if (folders.length === 0) return
+
+    const folderSnapshots = folders.map((folderId) => {
+      const folder = scene.getEntity(folderId)!
+      return {
+        folderId,
+        folderName: folder.name ?? `Entity ${folderId}`,
+        folderComponents: folder.getAllComponents().map((c) => cloneComponent(c)),
+      }
+    })
+    const moves = folders.flatMap((folderId) => {
+      const destParent = getParentId(scene, folderId)
+      return getChildren(scene, folderId)
+        .filter((child) => canReparent(scene, child.id, destParent).ok)
+        .map((child) => {
+          const beforeTransform = child.getComponent<TransformComponent>('transform')
+          return {
+            childId: child.id,
+            beforeParent: folderId,
+            beforeLocal: beforeTransform
+              ? {
+                position: { ...beforeTransform.position },
+                rotation: { ...beforeTransform.rotation },
+                scale: { ...beforeTransform.scale },
+              } as TransformData
+              : null,
+            afterParent: destParent,
+            afterLocal: computePreservedLocal(scene, child.id, destParent),
+          }
+        })
+    })
+
+    for (const move of moves) {
+      this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+    }
+    // Only folders left empty are deleted; children that failed validation
+    // stay behind and keep their folder alive.
+    const emptied = folders.filter((folderId) => getChildren(scene, folderId).length === 0)
+    for (const folderId of emptied) {
+      scene.destroyEntity(folderId)
+      this.editorState.removeEntity(folderId)
+    }
+    if (moves.length === 0 && emptied.length === 0) return
+    const movedIds = moves.map((move) => move.childId)
+    const previousSelection = [...this.selectionState.getSelectedIds()]
+    const previousActive = this.selectionState.getActiveId()
+    this.markSceneDirty()
+    if (movedIds.length > 0) {
+      this.selectionState.setSelection(movedIds, movedIds[movedIds.length - 1])
+    } else {
+      this.selectionState.select(null)
+    }
+    this.hierarchySignature = ''
+    this.syncViewportSystems()
+    this.renderInspectorForSelection()
+    this.update()
+
+    this.history.execute({
+      description: folders.length === 1
+        ? `Ungroup ${folderSnapshots[0].folderName}`
+        : `Ungroup ${folders.length} folders`,
+      undo: () => {
+        for (const snapshot of folderSnapshots) {
+          if (!scene.getEntity(snapshot.folderId)) {
+            const recreated = (scene as any).createEntityWithId(snapshot.folderId, { name: snapshot.folderName }) as Entity
+            for (const comp of snapshot.folderComponents) {
+              recreated.addComponent(cloneComponent(comp))
+            }
+          }
+        }
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.beforeParent, move.beforeLocal)
+        }
+        this.selectionState.setSelection(
+          previousSelection.filter((id) => scene.getEntity(id) !== undefined),
+          previousActive,
+        )
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+      redo: () => {
+        for (const move of moves) {
+          this.setReparentState(move.childId, move.afterParent, move.afterLocal)
+        }
+        for (const snapshot of folderSnapshots) {
+          if (getChildren(scene, snapshot.folderId).length === 0) {
+            scene.destroyEntity(snapshot.folderId)
+            this.editorState.removeEntity(snapshot.folderId)
+          }
+        }
+        if (movedIds.length > 0) {
+          const remaining = movedIds.filter((id) => scene.getEntity(id) !== undefined)
+          this.selectionState.setSelection(remaining, remaining[remaining.length - 1] ?? null)
+        } else {
+          this.selectionState.select(null)
+        }
+        this.hierarchySignature = ''
+        this.syncViewportSystems()
+        this.renderInspectorForSelection()
+        this.update()
+      },
+    })
+  }
+
+  private applyReparentState(childId: number, parentId: number | null, local: TransformData | null): void {    this.setReparentState(childId, parentId, local)
     if (!this.selectionState.isSelected(childId)) {
       this.selectionState.select(childId)
     } else {
@@ -2822,6 +3733,21 @@ export class Editor {
       .map((id) => result.idMap.get(id))
       .filter((id): id is number => id !== undefined)
 
+    // Duplicated audio starts stopped: `playing` is runtime-only and must
+    // not clone a live flag into the new entities.
+    for (const record of result.records) {
+      for (const component of record.components) {
+        if ((component as { type?: unknown }).type === 'audio') {
+          (component as unknown as Record<string, unknown>).playing = false
+        }
+      }
+    }
+    for (const id of duplicatedIds) {
+      const entity = scene.getEntity(id)
+      const audio = entity?.getComponent('audio') as Record<string, unknown> | undefined
+      if (audio) audio.playing = false
+    }
+
     this.markSceneDirty()
     this.selectionState.setSelection(newSelection, result.rootIds[result.rootIds.length - 1] ?? null)
     this.hierarchySignature = ''
@@ -2831,6 +3757,7 @@ export class Editor {
     this.history.execute({
       description: roots.length === 1 ? 'Duplicate Entity' : `Duplicate Entities (${roots.length})`,
       undo: () => {
+        for (const id of duplicatedIds) this.audioSystem?.stopPreview(id)
         destroyDuplicatedEntities(scene, duplicatedIds)
         const restored = sourceIds.filter((id) => scene.getEntity(id) !== undefined)
         this.selectionState.setSelection(restored, sourceIds[sourceIds.length - 1] ?? null)
@@ -2868,7 +3795,9 @@ export class Editor {
 
     this.selectionState.select(null)
     for (const id of idsToDelete) {
+      this.audioSystem?.stopPreview(id)
       scene.destroyEntity(id)
+      this.editorState.removeEntity(id)
     }
     this.hierarchySignature = ''
     this.markSceneDirty()
@@ -2891,7 +3820,9 @@ export class Editor {
       },
       redo: () => {
         for (const id of idsToDelete) {
+          this.audioSystem?.stopPreview(id)
           scene.destroyEntity(id)
+          this.editorState.removeEntity(id)
         }
         const remaining = this.selectionState.getSelectedIds().filter((id) => scene.getEntity(id) !== undefined)
         this.selectionState.setSelection(remaining, this.selectionState.getActiveId())

@@ -66,5 +66,16 @@ export default defineConfig({
       '@engine': fileURLToPath(new URL('./src/engine', import.meta.url)),
     },
   },
+  // Bind the IPv4 loopback explicitly. The default 'localhost' host resolves
+  // to ::1 first on Node 17+ (verbatim DNS ordering), so the dev server ends
+  // up listening on IPv6 only and plain-IPv4 clients (127.0.0.1) get
+  // connection-refused "Failed to fetch" errors for asset requests.
+  // 127.0.0.1 keeps the server loopback-only while remaining reachable for
+  // every localhost resolution order (browsers fall back between ::1 and
+  // 127.0.0.1 on refused connections).
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+  },
   plugins: [trionAssetManifest()],
 })
