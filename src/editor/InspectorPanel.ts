@@ -67,6 +67,18 @@ export interface InspectorPanelOptions {
   onAudioStopPreview?: (entityId: number) => void
   getAudioAssets?: () => Array<{ id: string; label: string }>
   isAudioPreviewing?: (entityId: number) => boolean
+  onParticleCommit?: (
+    entityId: number,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) => void
+  onAddParticleComponent?: (entityId: number) => void
+  onRemoveParticleComponent?: (entityId: number) => void
+  onParticlePlay?: (entityId: number) => void
+  onParticlePause?: (entityId: number) => void
+  onParticleStop?: (entityId: number) => void
+  onParticleRestart?: (entityId: number) => void
+  onParticleBurst?: (entityId: number) => void
 }
 
 export interface InspectorAssetViewOptions {
@@ -228,6 +240,11 @@ export class InspectorPanel {
       hasEditableSection = true
       this.element.appendChild(this.createAudioSection(entity, audio, canEdit))
     }
+    const particle = entity.getComponent('particle') as Record<string, unknown> | undefined
+    if (particle) {
+      hasEditableSection = true
+      this.element.appendChild(this.createParticleSection(entity, particle, canEdit))
+    }
     if (view.canEditComponents !== false) {
       const addSection = this.createAddComponentSection(entity, {
         hasRigidBody: rigidBody !== undefined,
@@ -239,6 +256,7 @@ export class InspectorPanel {
         hasAnimation: animation !== undefined,
         canAddAnimation: animation === undefined && (this.options.getAnimationSource?.(entity.id) ?? null) !== null,
         hasAudio: audio !== undefined,
+        hasParticle: particle !== undefined,
       })
       if (addSection) {
         hasEditableSection = true
@@ -477,6 +495,7 @@ export class InspectorPanel {
       hasAnimation: boolean
       canAddAnimation: boolean
       hasAudio: boolean
+      hasParticle: boolean
     },
   ): HTMLElement | null {
     const physicsMissing: Array<{ type: PhysicsComponentType; label: string }> = []
@@ -487,7 +506,7 @@ export class InspectorPanel {
     if (!presence.hasDirectionalLight) lightMissing.push({ type: 'directionalLight', label: 'Add Directional Light' })
     if (!presence.hasPointLight) lightMissing.push({ type: 'pointLight', label: 'Add Point Light' })
     if (!presence.hasSpotLight) lightMissing.push({ type: 'spotLight', label: 'Add Spot Light' })
-    if (physicsMissing.length === 0 && lightMissing.length === 0 && (presence.hasAnimation || !presence.canAddAnimation) && presence.hasAudio) return null
+    if (physicsMissing.length === 0 && lightMissing.length === 0 && (presence.hasAnimation || !presence.canAddAnimation) && presence.hasAudio && presence.hasParticle) return null
 
     const section = document.createElement('section')
     section.className = 'trion-editor-component'
@@ -533,6 +552,16 @@ export class InspectorPanel {
       button.textContent = 'Add Audio Source'
       button.addEventListener('click', () => {
         this.options.onAddAudioComponent?.(entity.id)
+      })
+      row.appendChild(button)
+    }
+    if (!presence.hasParticle) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'trion-editor-button'
+      button.textContent = 'Add Particle System'
+      button.addEventListener('click', () => {
+        this.options.onAddParticleComponent?.(entity.id)
       })
       row.appendChild(button)
     }
@@ -1358,6 +1387,343 @@ export class InspectorPanel {
     if (key === 'volume') record[key] = Math.min(1, Math.max(0, value))
     else if (key === 'pitch') record[key] = Math.min(4, Math.max(0.1, value))
     else if (key === 'minDistance' || key === 'maxDistance') record[key] = Math.max(0, value)
+  }
+
+  private snapshotParticle(component: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    for (const key of [
+      'emissionRate', 'maxParticles', 'lifetime', 'duration', 'startSpeed',
+      'startSize', 'endSize', 'useSizeOverLifetime', 'startRotation', 'gravity',
+      'direction', 'spread', 'simulationSpace', 'looping', 'playOnStart', 'playing',
+      'shape', 'shapeRadius', 'shapeExtents', 'startColor', 'endColor',
+      'useColorOverLifetime', 'opacity', 'fadeAlpha', 'burstCount', 'bursts',
+    ]) {
+      out[key] = component[key]
+    }
+    return JSON.parse(JSON.stringify(out)) as Record<string, unknown>
+  }
+
+  private createParticleSubheading(title: string): HTMLElement {
+    const group = document.createElement('div')
+    group.className = 'trion-editor-vector'
+    const heading = document.createElement('h3')
+    heading.textContent = title
+    group.appendChild(heading)
+    return group
+  }
+
+  private readLiveParticle(): Record<string, unknown> | undefined {
+    return this.currentEntity?.getComponent('particle') as Record<string, unknown> | undefined
+  }
+
+  private commitParticleField(start: Record<string, unknown> | null): Record<string, unknown> | null {
+    const current = this.readLiveParticle()
+    if (this.currentEntity && current && start) {
+      const after = this.snapshotParticle(current)
+      if (JSON.stringify(start) !== JSON.stringify(after)) {
+        this.options.onParticleCommit?.(this.currentEntity.id, start, after)
+        return after
+      }
+    }
+    return start
+  }
+
+  private createParticleNumberField(
+    particle: Record<string, unknown>,
+    key: string,
+    label: string,
+    options: {
+      min?: string
+      max?: string
+      step?: string
+      toDisplay?: (v: unknown) => number
+      fromDisplay?: (v: number) => number
+      fallback?: number
+    },
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const input = document.createElement('input')
+    input.type = 'number'
+    if (options.min !== undefined) input.min = options.min
+    if (options.max !== undefined) input.max = options.max
+    if (options.step !== undefined) input.step = options.step
+    input.inputMode = 'decimal'
+    input.setAttribute('aria-label', `Particle ${label}`)
+    const toDisplay = options.toDisplay ?? ((v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : (options.fallback ?? 0)))
+    input.value = String(toDisplay(particle[key]))
+    input.disabled = !canEdit
+    let start: Record<string, unknown> | null = null
+    input.addEventListener('focus', () => {
+      const current = this.readLiveParticle()
+      if (current) start = this.snapshotParticle(current)
+    })
+    input.addEventListener('input', () => {
+      const value = input.valueAsNumber
+      if (Number.isFinite(value)) {
+        particle[key] = options.fromDisplay ? options.fromDisplay(value) : value
+      }
+    })
+    const commit = () => {
+      const current = this.readLiveParticle()
+      if (current) {
+        const raw = current[key]
+        if (typeof raw === 'number' && !Number.isFinite(raw)) {
+          current[key] = options.fallback ?? 0
+        }
+        input.value = String(toDisplay(current[key]))
+      }
+      start = this.commitParticleField(start)
+    }
+    input.addEventListener('change', commit)
+    input.addEventListener('blur', commit)
+    field.appendChild(input)
+    return field
+  }
+
+  private createParticleCheckboxField(
+    particle: Record<string, unknown>,
+    key: string,
+    label: string,
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.setAttribute('aria-label', `Particle ${label}`)
+    input.checked = particle[key] === true
+    input.disabled = !canEdit
+    let start: Record<string, unknown> | null = null
+    input.addEventListener('focus', () => {
+      const current = this.readLiveParticle()
+      if (current) start = this.snapshotParticle(current)
+    })
+    input.addEventListener('change', () => {
+      const current = this.readLiveParticle()
+      if (!current) return
+      if (!start) start = this.snapshotParticle(current)
+      current[key] = input.checked
+      particle[key] = input.checked
+      start = this.commitParticleField(start)
+    })
+    field.appendChild(input)
+    return field
+  }
+
+  private createParticleColorField(
+    particle: Record<string, unknown>,
+    key: string,
+    label: string,
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const input = document.createElement('input')
+    input.type = 'color'
+    input.setAttribute('aria-label', `Particle ${label}`)
+    input.value = typeof particle[key] === 'string' && /^#[0-9a-fA-F]{6}$/.test(particle[key] as string)
+      ? (particle[key] as string)
+      : '#ffffff'
+    input.disabled = !canEdit
+    let start: Record<string, unknown> | null = null
+    input.addEventListener('focus', () => {
+      const current = this.readLiveParticle()
+      if (current) start = this.snapshotParticle(current)
+    })
+    input.addEventListener('input', () => {
+      particle[key] = input.value
+      const current = this.readLiveParticle()
+      if (current) current[key] = input.value
+    })
+    input.addEventListener('change', () => {
+      start = this.commitParticleField(start)
+    })
+    field.appendChild(input)
+    return field
+  }
+
+  private createParticleSelectField(
+    particle: Record<string, unknown>,
+    key: string,
+    label: string,
+    choices: Array<{ value: string; label: string }>,
+    canEdit: boolean,
+  ): HTMLElement {
+    const field = document.createElement('label')
+    field.className = 'trion-editor-field'
+    field.textContent = label
+    const select = document.createElement('select')
+    select.className = 'trion-editor-select'
+    select.setAttribute('aria-label', `Particle ${label}`)
+    select.disabled = !canEdit
+    for (const { value, label: text } of choices) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = text
+      select.appendChild(option)
+    }
+    if (typeof particle[key] === 'string') select.value = particle[key] as string
+    let start: Record<string, unknown> | null = null
+    select.addEventListener('focus', () => {
+      const current = this.readLiveParticle()
+      if (current) start = this.snapshotParticle(current)
+    })
+    select.addEventListener('change', () => {
+      const current = this.readLiveParticle()
+      if (!current || !select.value) return
+      current[key] = select.value
+      particle[key] = select.value
+      start = this.commitParticleField(start)
+    })
+    field.appendChild(select)
+    return field
+  }
+
+  private createParticleVec3Field(
+    particle: Record<string, unknown>,
+    key: string,
+    label: string,
+    canEdit: boolean,
+  ): HTMLElement {
+    const group = document.createElement('div')
+    group.className = 'trion-editor-vector'
+    const title = document.createElement('h3')
+    title.textContent = label
+    group.appendChild(title)
+    const record = (particle[key] as Record<string, number> | undefined) ?? { x: 0, y: 0, z: 0 }
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const field = document.createElement('label')
+      field.textContent = axis.toUpperCase()
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.step = '0.1'
+      input.inputMode = 'decimal'
+      input.setAttribute('aria-label', `Particle ${label} ${axis.toUpperCase()}`)
+      input.value = typeof record[axis] === 'number' && Number.isFinite(record[axis]) ? String(record[axis]) : '0'
+      input.disabled = !canEdit
+      let start: Record<string, unknown> | null = null
+      input.addEventListener('focus', () => {
+        const current = this.readLiveParticle()
+        if (current) start = this.snapshotParticle(current)
+      })
+      input.addEventListener('input', () => {
+        const value = input.valueAsNumber
+        if (Number.isFinite(value)) {
+          const live = this.readLiveParticle()?.[key] as Record<string, number> | undefined
+          if (live && typeof live === 'object') {
+            live[axis] = value
+          } else {
+            // Legacy data without this vector: create it on the component.
+            const created: Record<string, number> = { x: 0, y: 0, z: 0 }
+            created[axis] = value
+            const target = this.readLiveParticle()
+            if (target) target[key] = created
+            particle[key] = created
+          }
+        }
+      })
+      const commit = () => {
+        start = this.commitParticleField(start)
+      }
+      input.addEventListener('change', commit)
+      input.addEventListener('blur', commit)
+      field.appendChild(input)
+      group.appendChild(field)
+    }
+    return group
+  }
+
+  private createParticleSection(entity: Entity, particle: Record<string, unknown>, canEdit: boolean): HTMLElement {
+    const section = document.createElement('section')
+    section.className = 'trion-editor-component'
+    const heading = document.createElement('h2')
+    heading.textContent = 'Particle System'
+    section.appendChild(heading)
+
+    if (canEdit) {
+      const transport = document.createElement('div')
+      transport.className = 'trion-editor-asset-action-row'
+      const playing = particle.playing === true
+      const makeButton = (label: string, title: string, disabled: boolean, onClick: () => void, primary = false): HTMLButtonElement => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = primary ? 'trion-editor-button is-primary' : 'trion-editor-button'
+        button.textContent = label
+        button.title = title
+        button.disabled = disabled
+        button.addEventListener('click', onClick)
+        return button
+      }
+      transport.append(
+        makeButton('▶ Play', 'Start particle playback (no history entry)', playing, () => this.options.onParticlePlay?.(entity.id), !playing),
+        makeButton('⏸ Pause', 'Pause particle playback, freezing live particles (no history entry)', !playing, () => this.options.onParticlePause?.(entity.id)),
+        makeButton('⏹ Stop', 'Stop and clear all live particles (no history entry)', false, () => this.options.onParticleStop?.(entity.id)),
+        makeButton('↻ Restart', 'Clear and restart the effect from time zero (no history entry)', false, () => this.options.onParticleRestart?.(entity.id)),
+        makeButton('✦ Burst', 'Emit a burst of particles immediately (no history entry)', false, () => this.options.onParticleBurst?.(entity.id)),
+      )
+      section.appendChild(transport)
+      const hint = document.createElement('p')
+      hint.className = 'trion-editor-asset-hint'
+      hint.textContent = 'Preview transport runs in Edit Mode through the runtime ParticleSystem. Play, pause, stop, restart and bursts create no history entries and never touch saved scene data.'
+      section.appendChild(hint)
+    }
+
+    const toDegrees = (v: unknown): number => {
+      const radians = typeof v === 'number' && Number.isFinite(v) ? v : 0
+      return Math.round(radians * 180 / Math.PI * 100) / 100
+    }
+    const fromDegrees = (v: number): number => v * Math.PI / 180
+
+    section.appendChild(this.createParticleSubheading('Emission'))
+    section.appendChild(this.createParticleNumberField(particle, 'emissionRate', 'Emission Rate', { min: '0', step: '1', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'maxParticles', 'Max Particles', { min: '1', step: '1', fallback: 1 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'duration', 'Duration', { min: '0', step: '0.1', fallback: 5 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'burstCount', 'Burst Count', { min: '0', step: '1', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleCheckboxField(particle, 'looping', 'Looping', canEdit))
+    section.appendChild(this.createParticleCheckboxField(particle, 'playOnStart', 'Play On Start', canEdit))
+
+    section.appendChild(this.createParticleSubheading('Lifetime & Motion'))
+    section.appendChild(this.createParticleNumberField(particle, 'lifetime', 'Lifetime', { min: '0', step: '0.1', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'startSpeed', 'Start Speed', { min: '0', step: '0.1', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'gravity', 'Gravity', { step: '0.1', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleVec3Field(particle, 'direction', 'Direction', canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'spread', 'Spread (°)', { min: '0', max: '180', step: '1', toDisplay: toDegrees, fromDisplay: fromDegrees, fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'startRotation', 'Start Rotation (°)', { step: '1', toDisplay: toDegrees, fromDisplay: fromDegrees, fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleSelectField(particle, 'simulationSpace', 'Simulation Space', [
+      { value: 'local', label: 'Local' },
+      { value: 'world', label: 'World' },
+    ], canEdit))
+
+    section.appendChild(this.createParticleSubheading('Shape'))
+    section.appendChild(this.createParticleSelectField(particle, 'shape', 'Emission Shape', [
+      { value: 'point', label: 'Point' },
+      { value: 'sphere', label: 'Sphere' },
+      { value: 'box', label: 'Box' },
+    ], canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'shapeRadius', 'Shape Radius', { min: '0', step: '0.05', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleVec3Field(particle, 'shapeExtents', 'Shape Extents', canEdit))
+
+    section.appendChild(this.createParticleSubheading('Appearance'))
+    section.appendChild(this.createParticleColorField(particle, 'startColor', 'Start Color', canEdit))
+    section.appendChild(this.createParticleColorField(particle, 'endColor', 'End Color', canEdit))
+    section.appendChild(this.createParticleCheckboxField(particle, 'useColorOverLifetime', 'Color Over Lifetime', canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'startSize', 'Start Size', { min: '0', step: '0.05', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'endSize', 'End Size', { min: '0', step: '0.05', fallback: 0 }, canEdit))
+    section.appendChild(this.createParticleCheckboxField(particle, 'useSizeOverLifetime', 'Size Over Lifetime', canEdit))
+    section.appendChild(this.createParticleNumberField(particle, 'opacity', 'Opacity', { min: '0', max: '1', step: '0.01', fallback: 1 }, canEdit))
+    section.appendChild(this.createParticleCheckboxField(particle, 'fadeAlpha', 'Fade Alpha', canEdit))
+
+    if (canEdit) {
+      section.appendChild(this.createRemoveComponentRow('Remove Particle System', () => {
+        this.options.onRemoveParticleComponent?.(entity.id)
+      }))
+    }
+    return section
   }
 
   syncValues(transform: TransformComponent): void {

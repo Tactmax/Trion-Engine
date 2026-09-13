@@ -1,7 +1,7 @@
 import type * as THREE from 'three'
 import { BoxGeometry, SphereGeometry } from 'three'
 import type { Component, Entity, EntityMetadata, Scene, SceneData, SceneManager } from '../engine/index.ts'
-import { createAnimation, createAudio, createBoxCollider, createMeshRenderer, createRigidBody, createSphereCollider, createTransform } from '../engine/index.ts'
+import { createAnimation, createAudio, createBoxCollider, createMeshRenderer, createParticle, createRigidBody, createSphereCollider, createTransform } from '../engine/index.ts'
 import { applyParentLink, canReparent, computePreservedLocal, getChildren, getParentId } from '../engine/index.ts'
 import { createLightComponent, type LightComponentType } from '../engine/components/Light.ts'
 import type { MeshRendererComponent } from '../engine/components/MeshRenderer.ts'
@@ -23,6 +23,7 @@ import type { MeshRendererSystem } from '../engine/graphics/MeshRendererSystem.t
 import type { LightSystem } from '../engine/graphics/LightSystem.ts'
 import type { AnimationSystem } from '../engine/systems/AnimationSystem.ts'
 import type { AudioSystem } from '../engine/systems/AudioSystem.ts'
+import type { ParticleSystem } from '../engine/systems/ParticleSystem.ts'
 import type { PhysicsSystem } from '../engine/physics/PhysicsSystem.ts'
 import type { TransformComponent } from '../engine/components/Transform.ts'
 import type { RigidBodyComponent } from '../engine/components/RigidBody.ts'
@@ -38,6 +39,7 @@ import { EditorCamera } from './EditorCamera.ts'
 import { EditorGrid } from './EditorGrid.ts'
 import { ColliderVisualizer } from './ColliderVisualizer.ts'
 import { LightVisualizer } from './LightVisualizer.ts'
+import { ParticleVisualizer } from './ParticleVisualizer.ts'
 import { MaterialStore } from './MaterialStore.ts'
 import { EntityPicker } from './EntityPicker.ts'
 import { SelectionHighlight } from './SelectionHighlight.ts'
@@ -70,7 +72,7 @@ interface PreEditSnapshot {
   editorLocked: number[]
 }
 
-export type CreateEntityKind = 'empty' | 'cube' | 'sphere' | 'directionalLight' | 'pointLight' | 'spotLight' | 'group'
+export type CreateEntityKind = 'empty' | 'cube' | 'sphere' | 'directionalLight' | 'pointLight' | 'spotLight' | 'group' | 'particle'
 
 function isSceneDataLike(data: unknown): data is SceneData {
   return typeof data === 'object' && data !== null && !Array.isArray(data) &&
@@ -122,6 +124,7 @@ export class Editor {
   private readonly meshRendererSystem: MeshRendererSystem
   private readonly animationSystem: AnimationSystem | undefined
   private readonly audioSystem: AudioSystem | undefined
+  private readonly particleSystem: ParticleSystem | undefined
   private readonly lightSystem: LightSystem | undefined
   private readonly physicsSystem: PhysicsSystem | undefined
   private readonly assetManager: AssetManager | undefined
@@ -138,6 +141,7 @@ export class Editor {
   private readonly grid: EditorGrid
   private readonly colliderVisualizer: ColliderVisualizer
   private readonly lightVisualizer: LightVisualizer
+  private readonly particleVisualizer: ParticleVisualizer
   private readonly gizmo: GizmoController
   private readonly selectionHighlight: SelectionHighlight
   private readonly picker: EntityPicker
@@ -184,11 +188,13 @@ export class Editor {
     physicsSystem?: PhysicsSystem,
     lightSystem?: LightSystem,
     audioSystem?: AudioSystem,
+    particleSystem?: ParticleSystem,
   ) {
     this.sceneManager = sceneManager
     this.meshRendererSystem = meshRendererSystem
     this.animationSystem = animationSystem
     this.audioSystem = audioSystem
+    this.particleSystem = particleSystem
     this.lightSystem = lightSystem
     this.physicsSystem = physicsSystem
     this.assetManager = assetManager
@@ -208,8 +214,10 @@ export class Editor {
     this.grid = new EditorGrid(renderer)
     this.colliderVisualizer = new ColliderVisualizer(renderer, () => this.sceneManager.getActiveScene())
     this.lightVisualizer = new LightVisualizer(renderer, () => this.sceneManager.getActiveScene())
+    this.particleVisualizer = new ParticleVisualizer(renderer, () => this.sceneManager.getActiveScene())
     this.colliderVisualizer.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
     this.lightVisualizer.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
+    this.particleVisualizer.setHiddenFilter((id) => this.editorState.isEffectivelyHidden(this.sceneManager.getActiveScene(), id))
 
     this.hierarchy = new HierarchyPanel({
       onSelectEntity: (entity, modifiers) => {
@@ -335,6 +343,30 @@ export class Editor {
       },
       getAudioAssets: () => this.getAudioAssets(),
       isAudioPreviewing: (entityId) => this.audioSystem?.isPreviewing(entityId) ?? false,
+      onParticleCommit: (entityId, before, after) => {
+        this.recordParticleChange(entityId, before, after)
+      },
+      onAddParticleComponent: (entityId) => {
+        this.addParticleComponent(entityId)
+      },
+      onRemoveParticleComponent: (entityId) => {
+        this.removeParticleComponent(entityId)
+      },
+      onParticlePlay: (entityId) => {
+        this.playParticlePreview(entityId)
+      },
+      onParticlePause: (entityId) => {
+        this.pauseParticlePreview(entityId)
+      },
+      onParticleStop: (entityId) => {
+        this.stopParticlePreview(entityId)
+      },
+      onParticleRestart: (entityId) => {
+        this.restartParticlePreview(entityId)
+      },
+      onParticleBurst: (entityId) => {
+        this.burstParticlePreview(entityId)
+      },
     })
 
     this.assetBrowser = new AssetBrowser({
@@ -631,6 +663,7 @@ export class Editor {
       { kind: 'directionalLight', label: 'Directional Light', title: 'Create a directional light entity' },
       { kind: 'pointLight', label: 'Point Light', title: 'Create a point light entity' },
       { kind: 'spotLight', label: 'Spot Light', title: 'Create a spot light entity' },
+      { kind: 'particle', label: 'Particle Effect', title: 'Create a particle effect entity' },
     ]
     for (const { kind, label, title } of createOptions) {
       const item = document.createElement('button')
@@ -1123,6 +1156,8 @@ export class Editor {
       if (target && target.visible !== visible) target.visible = visible
       const light = this.lightSystem?.getLight(entity.id)
       if (light && light.visible !== visible) light.visible = visible
+      const points = this.particleSystem?.getPoints(entity.id)
+      if (points && points.visible !== visible) points.visible = visible
     }
   }
 
@@ -1136,6 +1171,8 @@ export class Editor {
       if (target) target.visible = true
       const light = this.lightSystem?.getLight(entity.id)
       if (light) light.visible = true
+      const points = this.particleSystem?.getPoints(entity.id)
+      if (points) points.visible = true
     }
   }
 
@@ -1200,6 +1237,10 @@ export class Editor {
     // snapshot is used at runtime, then arm playOnStart sources.
     this.audioSystem?.enterPlayMode()
 
+    // Re-arm every emitter from playOnStart so Play starts cleanly,
+    // regardless of preview state.
+    this.particleSystem?.enterPlayMode()
+
     this.playing = true
     this.editorViewActive = false
     this.editorCamera.setEnabled(false)
@@ -1208,6 +1249,7 @@ export class Editor {
     this.grid.setVisible(false)
     this.colliderVisualizer.setVisible(false)
     this.lightVisualizer.setVisible(false)
+    this.particleVisualizer.setVisible(false)
     this.selectionHighlight.setVisible(false)
     this.history.setDisabled(true)
     this.assetBrowser.setDisabled(true)
@@ -1272,6 +1314,7 @@ export class Editor {
     this.applyEditorPreferences()
     this.colliderVisualizer.setVisible(true)
     this.lightVisualizer.setVisible(true)
+    this.particleVisualizer.setVisible(true)
     this.selectionHighlight.setVisible(true)
     this.history.setDisabled(false)
     this.assetBrowser.setDisabled(false)
@@ -1288,6 +1331,10 @@ export class Editor {
     // Discard runtime animation mixers/targets; the next update rebuilds
     // entries from the restored components starting at time zero.
     this.animationSystem?.clear()
+
+    // Discard runtime particle state; the next update rebuilds entries from
+    // the restored components starting at time zero.
+    this.particleSystem?.exitPlayMode()
 
     // Push restored state to the viewport now; also drops Play-created meshes and lights.
     this.syncViewportSystems()
@@ -1352,6 +1399,9 @@ export class Editor {
     // Zero-delta rebuild: refreshes animation entries (add/remove/undo/redo)
     // without advancing playback time.
     this.animationSystem?.update(0)
+    // Zero-delta refresh for particle entries: rebuilds created or restored
+    // emitters and drops stale ones without advancing simulation time.
+    this.particleSystem?.update(0)
     if (!this.playing) {
       this.applyEditorVisibility()
     } else {
@@ -2349,6 +2399,185 @@ export class Editor {
     this.update()
   }
 
+  private recordParticleChange(
+    entityId: number,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ): void {
+    if (this.playing) return
+    this.markSceneDirty()
+    this.history.execute({
+      description: 'Change Particle System',
+      undo: () => {
+        this.applyParticleSnapshot(entityId, before)
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        this.applyParticleSnapshot(entityId, after)
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  private applyParticleSnapshot(
+    entityId: number,
+    snapshot: Record<string, unknown>,
+  ): void {
+    const entity = this.sceneManager.getActiveScene().getEntity(entityId)
+    const component = entity?.getComponent('particle') as Record<string, unknown> | undefined
+    if (!component) return
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (key === 'type') continue
+      component[key] = cloneValue(value)
+    }
+  }
+
+  private addParticleComponent(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    const entity = scene.getEntity(entityId)
+    if (!entity || entity.hasComponent('particle')) return
+
+    entity.addComponent(createParticle())
+    this.markSceneDirty()
+    this.renderInspectorForSelection(entity)
+    this.update()
+
+    this.history.execute({
+      description: 'Add Particle System',
+      undo: () => {
+        scene.getEntity(entityId)?.removeComponent('particle')
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        const target = scene.getEntity(entityId)
+        if (target && !target.hasComponent('particle')) {
+          target.addComponent(createParticle())
+        }
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  private removeParticleComponent(entityId: number): void {
+    if (this.playing) return
+    const scene = this.sceneManager.getActiveScene()
+    const entity = scene.getEntity(entityId)
+    const existing = entity?.getComponent('particle')
+    if (!entity || !existing) return
+
+    const saved = cloneComponent(existing)
+    entity.removeComponent('particle')
+    this.markSceneDirty()
+    this.renderInspectorForSelection(entity)
+    this.update()
+
+    this.history.execute({
+      description: 'Remove Particle System',
+      undo: () => {
+        const target = scene.getEntity(entityId)
+        if (target && !target.hasComponent('particle')) {
+          target.addComponent(cloneComponent(saved))
+        }
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+      redo: () => {
+        scene.getEntity(entityId)?.removeComponent('particle')
+        if (!this.selectionState.isSelected(entityId)) {
+          this.selectionState.select(entityId)
+        } else {
+          this.renderInspectorForSelection()
+        }
+        this.update()
+      },
+    })
+  }
+
+  /**
+   * Editor preview transport: toggles the live flag without history.
+   * The ParticleSystem already updates in Edit Mode, so the viewport
+   * previews immediately without touching saved scene data.
+   */
+  private playParticlePreview(entityId: number): void {
+    if (this.playing) return
+    this.particleSystem?.play(entityId)
+    this.markSceneDirty()
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
+  /** Editor preview Pause: freeze live particles in place, history-free. */
+  private pauseParticlePreview(entityId: number): void {
+    if (this.playing) return
+    this.particleSystem?.pause(entityId)
+    this.markSceneDirty()
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
+  /** Editor preview Stop: pause and discard live particles and the effect clock. */
+  private stopParticlePreview(entityId: number): void {
+    if (this.playing) return
+    this.particleSystem?.stop(entityId)
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
+  /** Editor preview Restart: clear and restart the effect from time zero. */
+  private restartParticlePreview(entityId: number): void {
+    if (this.playing) return
+    this.particleSystem?.resetPlayback(entityId)
+    this.particleSystem?.play(entityId)
+    this.markSceneDirty()
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
+  /** Editor preview Burst: emit the burst count now, starting playback if paused. */
+  private burstParticlePreview(entityId: number): void {
+    if (this.playing) return
+    this.particleSystem?.play(entityId)
+    this.particleSystem?.burst(entityId)
+    this.markSceneDirty()
+    if (this.selectedEntityId === entityId) {
+      this.renderInspectorForSelection()
+    }
+    this.update()
+  }
+
   update(): void {
     const scene = this.sceneManager.getActiveScene()
     const entities = scene.getAllEntities()
@@ -2394,6 +2623,7 @@ export class Editor {
       this.editorCamera.update()
       this.colliderVisualizer.update()
       this.lightVisualizer.update()
+      this.particleVisualizer.update()
       this.selectionHighlight.update()
       this.gizmo.update()
     } else {
@@ -2419,6 +2649,7 @@ export class Editor {
     this.selectionHighlight.dispose()
     this.colliderVisualizer.dispose()
     this.lightVisualizer.dispose()
+    this.particleVisualizer.dispose()
     this.grid.dispose()
     this.editorCamera.dispose()
     this.selectionState.clear()
@@ -2923,6 +3154,7 @@ export class Editor {
     this.hierarchySignature = ''
     this.animationSystem?.clear()
     this.audioSystem?.clear()
+    this.particleSystem?.clear()
     this.syncViewportSystems()
 
     this.root.classList.add('is-prefab-editing')
@@ -2988,6 +3220,7 @@ export class Editor {
     this.editorState.restore({ hidden: snapshot.editorHidden ?? [], locked: snapshot.editorLocked ?? [] })
     this.animationSystem?.clear()
     this.audioSystem?.clear()
+    this.particleSystem?.clear()
     this.syncViewportSystems()
 
     this.root.classList.remove('is-prefab-editing')
@@ -3161,6 +3394,7 @@ export class Editor {
     this.hierarchySignature = ''
     this.animationSystem?.clear()
     this.audioSystem?.clear()
+    this.particleSystem?.clear()
     this.syncMaterialAssets()
     this.syncViewportSystems()
     this.updateHistoryButtons()
@@ -3185,6 +3419,7 @@ export class Editor {
     this.hierarchySignature = ''
     this.animationSystem?.clear()
     this.audioSystem?.clear()
+    this.particleSystem?.clear()
     this.syncViewportSystems()
     this.updateHistoryButtons()
     this.update()
@@ -3229,6 +3464,10 @@ export class Editor {
       entity.name = this.uniqueEntityName(lightComponentLabel(lightType))
       entity.addComponent(createTransform())
       entity.addComponent(createLightComponent(lightType))
+    } else if (kind === 'particle') {
+      entity.name = this.uniqueEntityName('Particle Effect')
+      entity.addComponent(createTransform())
+      entity.addComponent(createParticle())
     } else {
       entity.name = `Entity ${entity.id}`
     }

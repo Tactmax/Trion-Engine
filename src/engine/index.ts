@@ -35,6 +35,14 @@ export { createMeshRenderer } from './components/MeshRenderer.ts'
 export type { MeshRendererComponent, CreateMeshRendererOptions } from './components/MeshRenderer.ts'
 export { createAnimation } from './components/Animation.ts'
 export type { AnimationComponent, CreateAnimationOptions } from './components/Animation.ts'
+export { createParticle, PARTICLE_DEFAULTS, PARTICLE_LIMITS, resolveParticleProps } from './components/Particle.ts'
+export type {
+  CreateParticleOptions,
+  ParticleBurst,
+  ParticleComponent,
+  ParticleShape,
+  ParticleSimulationSpace,
+} from './components/Particle.ts'
 export { createAudio } from './components/Audio.ts'
 export type { AudioComponent, CreateAudioOptions } from './components/Audio.ts'
 export { createScript } from './components/Script.ts'
@@ -53,7 +61,7 @@ export { createUIButton } from './components/ui/UIButton.ts'
 export type { UIButtonComponent, CreateUIButtonOptions } from './components/ui/UIButton.ts'
 export { Renderer, AssetManager, MeshRendererSystem, CameraSystem, LightSystem } from './graphics/index.ts'
 export type { CreateStandardMaterialOptions, GLTFAssetResult, GLTFMeshAsset, MaterialDefinition, MaterialProps } from './graphics/index.ts'
-export { ScriptSystem, AnimationSystem, AudioSystem, UISystem } from './systems/index.ts'
+export { ScriptSystem, AnimationSystem, AudioSystem, ParticleSystem, UISystem } from './systems/index.ts'
 export { Input } from './input/index.ts'
 export type { Vec2 } from './input/index.ts'
 export { PhysicsSystem, RapierPhysicsBackend } from './physics/index.ts'

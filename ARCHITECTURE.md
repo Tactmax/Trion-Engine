@@ -29,7 +29,7 @@ SceneManager.getActiveScene().update(deltaTime)
 onPostUpdate(deltaTime)
 ```
 
-The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for gameplay updates gated to Play Mode (`PhysicsSystem`, `ScriptSystem`, `UISystem`), always-on rendering sync (`AnimationSystem`, `MeshRendererSystem`), editor updates, camera synchronization, rendering and `Input.endFrame()`. The viewport renders from the editor camera in edit mode and the runtime camera in Play Mode.
+The Engine does not construct or schedule systems itself. The application wires them through callbacks. The bundled demo uses `onPreUpdate` for `Input.beginFrame()`, and `onPostUpdate` for gameplay updates gated to Play Mode (`PhysicsSystem`, `ScriptSystem`, `UISystem`), always-on sync (`AnimationSystem`, `ParticleSystem`, `MeshRendererSystem`, `LightSystem`, `AudioSystem`), editor updates, camera synchronization, rendering and `Input.endFrame()`. The viewport renders from the editor camera in edit mode and the runtime camera in Play Mode.
 
 This preserves a single frame loop while allowing a host application to choose system ordering.
 
@@ -49,6 +49,9 @@ Components are plain ECS data with an optional `update(deltaTime)` method. Built
 - `meshRenderer`: geometry/material IDs plus shadow flags.
 - `script`: lifecycle callback references and start state.
 - `animation`: asset ID, clip list, active clip, playback state and looping.
+- `audio`: asset ID, playback state, volume, pitch, loop, mute, spatial attenuation and play-on-start.
+- `particle`: emitter configuration (rate, lifetime, speed, size, color, shape, gravity, looping, play-on-start, playback state).
+- `directionalLight` / `pointLight` / `spotLight`: color, intensity and range/cone settings.
 - `rigidBody`: physics body type (`dynamic` or `fixed`).
 - `boxCollider` / `sphereCollider`: collision shape descriptions.
 - `ui`: position, size, visibility and optional background color.
@@ -67,7 +70,13 @@ Systems query the Scene rather than owning entities. This prevents parallel owne
 
 `CameraSystem` selects the first camera entity returned by Scene order, creates a perspective or orthographic Three.js camera as needed, and synchronizes transform, projection and viewport aspect.
 
+`LightSystem` mirrors light components and their world-space transforms into `THREE.Light` objects (plus targets for directional/spot lights). `getLight(entityId)` exposes the runtime light so editor gizmos and picking resolve light entities to the object that carries their world transform.
+
+`AudioSystem` bridges `AudioComponent` state to Web Audio playback. It keeps two independent lanes: runtime sources driven by `component.playing` in Play Mode (`enterPlayMode()` arms `playOnStart` sources) and editor previews driven by explicit `startPreview`/`stopPreview` calls that never touch `playing`, so preview state cannot leak into snapshots or serialization. Spatial sources attenuate from the scene camera pose (runtime) or the editor camera pose (preview).
+
 `UISystem` queries entities with a `UIComponent`, creates or reuses a DOM element per entity, synchronizes position, size, visibility and background color from the component, updates text content from `UITextComponent`, and manages pointer interaction state for `UIButtonComponent`. It removes DOM elements when the entity or `UIComponent` is destroyed.
+
+`ParticleSystem` owns one `THREE.Points` per particle entity with preallocated buffers sized to `maxParticles` (no per-particle objects). It advances a CPU simulation (emission rate, scheduled bursts, lifetime, gravity, color/size over life) when `component.playing` is true in both Edit Mode (preview transport) and Play Mode, and rebuilds or disposes entries when components appear, disappear or change capacity. Simulation state lives in the system, never in ECS components, so previewing never mutates saved scene data.
 
 ## Physics architecture
 
@@ -159,6 +168,7 @@ Scene (live ECS state)
 - `AssetBrowser` lists file descriptors, never entities: `public/assets` contents (via a build-time manifest) merged with virtual `Prefabs/` and `Scenes/` entries from the editor-side stores. Instantiation always goes through `AssetManager`/`Scene.instantiate` into real ECS entities.
 - `PrefabStore` persists single-entity component snapshots captured with `serializeEntities` and rebuilds them with `restoreComponent` + `createPrefab`. Prefab editing snapshots the scene like Play Mode, loads the prefab entity into the same `Scene` (so all panels, gizmo and systems keep working), then restores the untouched scene on save/cancel.
 - Scene documents carry a name, a dirty flag and their own history: save/save-as serialize through `Scene.serialize` into `SceneStore`, open/new replace scene state via `Scene.deserialize` with history cleared, and dirty switches prompt Save/Don't Save/Cancel. Save is disabled in Play Mode.
+- Particle Systems preview in Edit Mode through the shared `playing` flag (Play/Pause/Stop/Restart/Burst transport, history-free, simulation state kept inside `ParticleSystem`). `ParticleVisualizer` draws the emitter shape and direction helpers; the helpers hide in Play Mode and never affect picking or gizmos.
 
 ## Asset ownership and disposal
 

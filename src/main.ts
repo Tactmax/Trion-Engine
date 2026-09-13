@@ -9,6 +9,7 @@ import {
   ScriptSystem,
   AnimationSystem,
   AudioSystem,
+  ParticleSystem,
   Input,
   PhysicsSystem,
   RapierPhysicsBackend,
@@ -135,7 +136,8 @@ const animationSystem = new AnimationSystem(engine.scene, assets, meshRendererSy
 const cameraSystem = new CameraSystem(engine.scene, renderer)
 const uiSystem = new UISystem(engine.scene)
 const audioSystem = new AudioSystem(engine.scene, assets)
-const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem, audioSystem)
+const particleSystem = new ParticleSystem(engine.scene, renderer)
+const editor = new Editor(engine.sceneManager, canvas, renderer, meshRendererSystem, animationSystem, assets, physicsSystem, lightSystem, audioSystem, particleSystem)
 
 
 engine.onPreUpdate = () => {
@@ -150,6 +152,9 @@ engine.onPostUpdate = (deltaTime: number) => {
   }
   // Rendering sync stays active in edit mode so animated entities remain visible.
   animationSystem.update(deltaTime)
+  // Particles simulate in both modes: editor preview in Edit Mode and
+  // runtime emission in Play Mode.
+  particleSystem.update(deltaTime)
   meshRendererSystem.sync()
   lightSystem.sync()
   editor.update()
@@ -176,6 +181,7 @@ engine.onPostUpdate = (deltaTime: number) => {
   renderer,
   assets,
   audioSystem,
+  particleSystem,
 }
 
 engine.start()

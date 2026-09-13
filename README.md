@@ -4,11 +4,11 @@ Trion Engine is a TypeScript ECS-based browser engine built on Three.js. It prov
 
 ## Status
 
-Trion is under active development. The current runtime provides an ECS core, a Three.js-backed rendering boundary, input handling, prefabs, scene queries, JSON-compatible scene serialization and GLTF/GLB loading with animation support. It is not a complete game engine or editor.
+Trion is under active development. The current runtime provides an ECS core, a Three.js-backed rendering boundary, input handling, prefabs, scene queries, JSON-compatible scene serialization, GLTF/GLB loading with animation support, audio playback and a CPU particle system, alongside a browser-based editor for composing scenes. It is not a complete game engine: there is no networking, no WebGPU backend and no file-backed project format yet.
 
 Current runtime: Web
 
-Editor: Browser-based editor (nested hierarchy with rename/reparenting, selection, Transform gizmos/inspection, undo/redo, play mode, WASD camera, asset browser, prefab workflow, scene save/load)
+Editor: Browser-based editor (nested hierarchy with rename/reparenting, folders, multi-selection, visibility/lock, Transform gizmos/inspection, undo/redo, Play Mode, WASD camera, asset browser, prefab workflow, scene save/load, audio and particle preview, preferences, console)
 
 Rendering backend: Three.js / WebGL
 
@@ -17,7 +17,7 @@ Rendering backend: Three.js / WebGL
 - Engine lifecycle driven by a single `requestAnimationFrame` loop
 - SceneManager ownership of the active Scene reference
 - Scene, Entity and Component ECS runtime
-- Transform, Hierarchy, Camera, MeshRenderer, Script and Animation components
+- Transform, Hierarchy, Camera, MeshRenderer, Script, Animation, Audio and Particle components, plus directional/point/spot lights and RigidBody/BoxCollider/SphereCollider physics components
 - Perspective and orthographic camera synchronization
 - Three.js-backed mesh rendering and explicit resource ownership
 - Keyboard, mouse, scroll and single-frame input states
@@ -27,10 +27,12 @@ Rendering backend: Three.js / WebGL
 - Asynchronous GLTF/GLB loading into `AssetManager` with geometry, material, animation clip and animation-root registration
 - Texture loading and texture-backed standard material creation by asset ID
 - Animation support via `AnimationComponent`, `AnimationSystem` and `AnimationMixer`
-- Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`
+- Audio playback via `AudioComponent`, `AudioSystem` and `AssetManager.loadAudio()`, with 2D/3D spatial playback and editor preview
+- CPU particle effects via `ParticleComponent` and `ParticleSystem` (emission rate, bursts, lifetime, gravity, color/size over life, local/world space), with editor preview transport
+- Directional, point and spot lights via `LightSystem` with editor viewport helpers
 - Backend-agnostic physics architecture with an initial Rapier implementation
 - DOM-backed UI subsystem with `UIComponent`, `UITextComponent`, `UIButtonComponent` and `UISystem`
-- Browser editor with nested hierarchy, entity selection and picking, inline rename and drag-and-drop reparenting, a Modify Selected menu (rename/duplicate/delete), Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, a WASD editor camera over the existing renderer viewport, an asset browser, a prefab create/instantiate/edit workflow, and scene save/save-as/open/new with dirty tracking
+- Browser editor with nested hierarchy, folders, multi-selection, visibility/lock, entity selection and picking, inline rename and drag-and-drop reparenting, a Modify Selected menu (rename/duplicate/group/delete), Transform gizmos (J/K/L) and inspection, undo/redo history, play mode with snapshot restore, a WASD editor camera over the existing renderer viewport, an asset browser (models, audio, materials, prefabs, scenes), a prefab create/instantiate/edit workflow, scene save/save-as/open/new with dirty tracking, audio and particle preview, editor preferences and a console panel
 
 ## Architecture
 
@@ -61,7 +63,7 @@ requestAnimationFrame
     -> onPostUpdate(deltaTime)     // systems + render + Input.endFrame()
 ```
 
-The demo post-update callback runs physics and script/audio/UI updates only in Play Mode, while `AnimationSystem`, `MeshRendererSystem`, editor updates, camera synchronization and `Renderer.render()` run in both modes. The editor camera renders the viewport in edit mode; the runtime camera takes over in Play Mode. See [Editor](#editor) for the editor-side behavior.
+The demo post-update callback runs physics and script/UI updates only in Play Mode, while `AnimationSystem`, `ParticleSystem`, `MeshRendererSystem`, `LightSystem` and `AudioSystem` (runtime sources in Play Mode, editor previews in Edit Mode), editor updates, camera synchronization and `Renderer.render()` run in both modes. The editor camera renders the viewport in edit mode; the runtime camera takes over in Play Mode. See [Editor](#editor) for the editor-side behavior.
 
 ## Basic usage
 
@@ -175,6 +177,23 @@ For mesh index `0`, geometry and material IDs are `rubiks-cube/mesh/0` and `rubi
 
 Animated entities are created with a `Transform` component plus a `MeshRenderer` and an `Animation` component. `AnimationSystem` clones the GLTF scene root into a runtime target object, creates an `AnimationMixer`, and drives the selected clip each frame. The system preserves the GLTF hierarchy and can attach a `SkinnedMesh` when the imported geometry contains skinning data.
 
+## Particles
+
+Particle effects are created with a `Transform` component plus a `Particle` component. `ParticleSystem` runs a CPU simulation (emission rate, scheduled bursts, lifetime, gravity, color/size over life) and renders each emitter as one preallocated `THREE.Points` object with camera-facing, transparent billboards.
+
+```ts
+const sparks = engine.scene.createEntity({ name: 'Sparks' })
+sparks.addComponent(createTransform({ x: 0, y: 1, z: 0 }))
+sparks.addComponent(createParticle({
+  emissionRate: 40,
+  lifetime: 1.2,
+  startSpeed: 3,
+  startColor: '#ffd27a',
+}))
+```
+
+In the editor, particle effects preview directly in Edit Mode (Play/Pause/Stop/Restart/Burst transport) and run from `playOnStart` emitters in Play Mode. Simulation state lives in the system, so previewing never mutates saved scene data.
+
 ## Textures and standard materials
 
 ```ts
@@ -237,6 +256,7 @@ The browser editor (`src/editor/`, wired in `src/main.ts`) edits the live `Scene
 - Move/Rotate/Scale gizmos (`J`/`K`/`L`) driven by Three.js `TransformControls`; the `TransformComponent` stays authoritative and gizmo drags are undoable.
 - Animated entities are gizmoed, picked and highlighted via their `AnimationSystem` target (`AnimationSystem.getTarget()`), which carries the world transform; the renderer mesh underneath it is never driven directly.
 - Light entities are gizmoed via their runtime light object (directional starts in rotate, point/spot in translate) and picked by clicking their viewport helper; drags edit the `TransformComponent` and are undoable like any Transform edit.
+- Audio Sources preview clips in Edit Mode without touching Play Mode state; Particle Systems preview in Edit Mode with Play/Pause/Stop/Restart/Burst transport plus emitter shape/direction helpers. Both run from their components in Play Mode and reset fully on stop.
 - Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`, 50 entries) covers Transform edits, renames, reparents, duplication and entity create/delete. History is editor-only and disabled in Play Mode; undo/redo push state to the viewport in the same tick.
 - Play Mode (`F5` / `▶ Play`, `F8` / `⏹ Stop`) snapshots the scene, runs physics/scripts/UI against the runtime camera, then restores the exact pre-play state on stop and discards runtime changes.
 - Editor camera: right-drag orbits, middle-drag pans, wheel zooms, `WASD` moves while hovering the viewport, `Alt`+left-drag orbits. Camera input suspends during gizmo drags and Play Mode.
@@ -270,7 +290,7 @@ src/
     graphics/    Renderer, AssetManager, camera/mesh systems, GLTF loading
     input/       DOM input service
     physics/     Physics backend interfaces, Rapier implementation, PhysicsSystem
-    systems/     Runtime systems (Script, Animation, UI)
+    systems/     Runtime systems (Script, Animation, Audio, Particle, UI)
   editor/         Browser editor UI kept separate from the runtime engine
                   (panels, asset browser, prefab/scene stores, dialogs, history)
   main.ts        Browser demo and engine wiring
@@ -290,6 +310,7 @@ src/
 - Prefab and scene assets persist in the browser's local storage rather than project files.
 - Scene instances referencing unloaded GLTF asset IDs render only once the source model is loaded.
 - Animation support is currently focused on GLTF animation clips and hierarchy-preserving runtime targets; it is not a full animation editor.
+- Particle simulation is CPU-based with a per-emitter particle cap; there is no GPU particle pipeline yet.
 - Multi-material GLTF meshes use their first material.
 - Scene serialization excludes functions and does not restore Script callbacks.
 - Physics bodies and the runtime camera use local transforms and ignore hierarchy parenting.

@@ -2,6 +2,33 @@
 
 All notable changes are documented here as implementation milestones.
 
+## [1.0.6] - 2026-09-13
+
+### Particle System
+
+- Added a `particle` component (`createParticle`) holding emitter configuration: emission rate, max particles, lifetime, duration, start speed/size/rotation, gravity, direction, spread, local/world simulation space, looping, play-on-start, point/sphere/box emission shape, start/end color with color-over-lifetime, size-over-lifetime, opacity with alpha fade, manual burst count and scheduled bursts.
+- Added `ParticleSystem`: CPU simulation rendered as one preallocated `THREE.Points` per emitter (no per-particle objects), with camera-facing billboards, transparency, effect looping, burst emission and full disposal of runtime entries.
+- Editor integration: Particle System Inspector section (emission, motion, shape, appearance groups) with history-free Play/Pause/Stop/Restart/Burst preview transport in Edit Mode, Add Component support, a Particle Effect create option, emitter shape/direction viewport helpers, undo/redo for config edits, and Play Mode arming via play-on-start with complete runtime reset on stop.
+- Particle configuration serializes with scenes and prefabs; duplication clones config with fresh runtime state.
+
+## [1.0.5] - 2026-09-12
+
+### Editor audio integration
+
+- Added an Audio Source Inspector section (clip, volume, pitch, loop, play-on-start, mute, 2D/3D spatial mode, min/max distance) with undo/redo for config edits.
+- Added Edit Mode audio preview that never touches runtime `playing` state, plus `playOnStart` arming on Play Mode enter and full audio reset on stop.
+- Asset Browser discovers mp3/wav/ogg clips; audio assets instantiate as Audio Source entities via double-click or drag into the viewport.
+
+### Editor folders and multi-selection
+
+- Added folder entities with Group into Folder / Ungroup (world-transform preserving) as single undoable operations.
+- Added multi-selection (Ctrl-toggle, Shift-range) with a shared group gizmo pivot for move/rotate/scale as one history entry.
+- Added per-entity visibility and lock state: hidden/locked entities are skipped by picking, gizmos and selection.
+
+### Editor preferences, console and logging
+
+- Added editor preferences (scene grid, gizmo, camera) with persistence, and an in-editor console panel backed by a bounded `Logger`.
+
 ## [1.0.4] - 2026-09-08
 
 ### Editor hierarchy: rename and reparenting
